@@ -1,6 +1,6 @@
-# Contributing to package_name
+# Contributing to fim
 
-Thank you for your interest in contributing to package_name! As a contributor, you’ll work from your fork of the main repository. This document outlines the steps to set up your development environment, guidelines for coding, and instructions for submitting contributions.
+Thank you for your interest in contributing to fim! As a contributor, you’ll work from your fork of the main repository. This document outlines the steps to set up your development environment, guidelines for coding, and instructions for submitting contributions.
 
 
 ## Repository Information
@@ -101,5 +101,5 @@ open a PR adding yourself to the [.zenodo.json file](.zenodo.json) along with yo
 
 ---
 
-Thank you for your contributions to package_name! We’re excited to work with you.
+Thank you for your contributions to fim! We’re excited to work with you.
 
