@@ -113,7 +113,7 @@ def load_hgo_fields(folder):
 if __name__ == "__main__":
     start_time = time.time()
 
-    Model = "hgo"  # or 'hgo'
+    Model = "linear"  # or 'hgo'
 
     if Model.lower() == "linear":
         # === Linear Model ===
