@@ -1,16 +1,15 @@
-"""
-MaterialModel class for unified FIM pipeline
+"""MaterialModel class for unified FIM pipeline
 Description: Encapsulates material model type and parameters,
 and delegates computation to model-specific functions.
 """
 
 import logging
-from vws_models import calculate_VWS_linear, calculate_VWS_hgo, sensitivity_full
+
+from vws_models import calculate_VWS_hgo, calculate_VWS_linear, sensitivity_full
 
 
 class MaterialModel:
-    """
-    Encapsulates logic for different material models and their parameter management.
+    """Encapsulates logic for different material models and their parameter management.
     """
 
     def __init__(self, model_name: str, parameters: dict):
@@ -22,10 +21,9 @@ class MaterialModel:
         logging.info("Selecting material model: %s", model_name)
         if model_name == "linear":
             return calculate_VWS_linear
-        elif model_name == "hgo":
+        if model_name == "hgo":
             return calculate_VWS_hgo
-        else:
-            raise ValueError(f"Unsupported model name: {model_name}")
+        raise ValueError(f"Unsupported model name: {model_name}")
 
     def get_parameter(self, key, default=None):
         return self.params.get(key, default)

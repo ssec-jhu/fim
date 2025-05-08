@@ -1,14 +1,9 @@
-"""
-VWS Model Functions
+"""VWS Model Functions
 Description: Implements full-field virtual fields method computations for supported material models.
 """
 
+
 import numpy as np
-import pandas as pd
-import scipy
-from scipy.optimize import least_squares, minimize
-from multiprocessing import Pool
-import time
 
 depth_indentation = 3.2e-05
 sphere_radius = 5e-4
@@ -346,7 +341,7 @@ def read_input_file(file_path):
     connectivity = []  # List to store element connectivity
     in_node_section = False
     in_element_section = False
-    file = open(file_path, "r")
+    file = open(file_path)
     Lines = file.readlines()
     flag = 0
 
@@ -356,33 +351,31 @@ def read_input_file(file_path):
         if line.startswith("*") and line.startswith("*Part, name=tissue"):
             flag = 1
             continue
-        elif line.startswith("*Node") and flag == 1:
+        if line.startswith("*Node") and flag == 1:
             in_node_section = True
             in_element_section = False
             continue
-        elif line.startswith("*Element") and flag == 1:
+        if line.startswith("*Element") and flag == 1:
             in_node_section = False
             in_element_section = True
             continue
-        elif line.startswith("*"):
+        if line.startswith("*"):
             flag = 0
             continue
-        else:
-            if in_node_section and not in_element_section and flag == 1:
-                values_n = line.split(",")
-                node_info = [int(values_n[0])] + [np.double(values_n[i].strip()) for i in range(1, 4)]
-                nodes.append(node_info)
-                continue
+        if in_node_section and not in_element_section and flag == 1:
+            values_n = line.split(",")
+            node_info = [int(values_n[0])] + [np.double(values_n[i].strip()) for i in range(1, 4)]
+            nodes.append(node_info)
+            continue
 
-            elif not in_node_section and in_element_section and flag == 1:
-                values_e = line.split(",")
-                if len(values_e) == 9:
-                    element_info = [int(value) for value in values_e]
-                    connectivity.append(element_info)
-                continue
+        if not in_node_section and in_element_section and flag == 1:
+            values_e = line.split(",")
+            if len(values_e) == 9:
+                element_info = [int(value) for value in values_e]
+                connectivity.append(element_info)
+            continue
 
-            else:
-                continue
+        continue
 
     nodes = np.array(nodes)
     connectivity = np.array(connectivity)
@@ -399,8 +392,7 @@ def read_input_file(file_path):
 
 
 def central_differentiation(Ux, Uy, Uz, X, Y, Z):
-    """
-    Compute central finite differences of displacement fields (Ux, Uy, Uz) over a 3D grid (X, Y, Z).
+    """Compute central finite differences of displacement fields (Ux, Uy, Uz) over a 3D grid (X, Y, Z).
 
     Parameters:
         Ux, Uy, Uz : ndarray
@@ -444,8 +436,7 @@ def central_differentiation(Ux, Uy, Uz, X, Y, Z):
 
 
 def map_elements_to_centraldiff(dUx_dx, dUy_dx, dUz_dx, dUx_dy, dUy_dy, dUz_dy, dUx_dz, dUy_dz, dUz_dz):
-    """
-    Map scalar gradient components to full 3x3 displacement gradient tensor at each voxel.
+    """Map scalar gradient components to full 3x3 displacement gradient tensor at each voxel.
 
     Returns:
         tensor_array: ndarray of shape (Nx, Ny, Nz, 3, 3)
@@ -471,8 +462,7 @@ def map_elements_to_centraldiff(dUx_dx, dUy_dx, dUz_dx, dUx_dy, dUy_dy, dUz_dy, 
 
 
 def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, cube_size, L, H, output=1):
-    """
-    Calculate the virtual work residuals for a linear orthotropic material model.
+    """Calculate the virtual work residuals for a linear orthotropic material model.
 
     Args:
         tensor_displacement_list: ndarray (Nx, Ny, Nz, 3, 3)
@@ -550,8 +540,7 @@ def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z
 
 
 def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa, volume_matrix, Force, L, H):
-    """
-    Computes the internal and external virtual work terms for HGO hyperelastic material model.
+    """Computes the internal and external virtual work terms for HGO hyperelastic material model.
 
     Args:
         tensor_displacement_list: ndarray of deformation gradients (Nx, Ny, Nz, 3, 3)
@@ -607,8 +596,7 @@ def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa,
 
 
 def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
-    """
-    Compute internal (IVW) and external (EVW) virtual work contributions for five
+    """Compute internal (IVW) and external (EVW) virtual work contributions for five
     predefined virtual fields, and return the residual vector phi for the given mode.
     """
     # Shift coordinates so that X1, X2 are centered (origin at mid-plane) and X3 is vertical
@@ -692,8 +680,7 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
 
 
 def sensitivity_full(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, cube_size, L, H, deviation):
-    """
-    Perform sensitivity analysis for the linear material model using finite difference.
+    """Perform sensitivity analysis for the linear material model using finite difference.
 
     Parameters:
         tensor_displacement_list: ndarray of shape (Nx, Ny, Nz, 3, 3)
@@ -707,7 +694,6 @@ def sensitivity_full(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Fo
     Returns:
         sens_matrix: 5x5 normalized sensitivity matrix
     """
-
     # Perturb each parameter by (1 + deviation)
     sens_matrix = np.zeros((5, 5))
     E1_1 = E1 * (1 + deviation)

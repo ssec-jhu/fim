@@ -1,16 +1,15 @@
-"""
-Main script for running VFM inverse modeling with different material models
+"""Main script for running VFM inverse modeling with different material models
 
 """
+
+import logging
+import os
+import time
 
 import numpy as np
-import logging
-import time
-import os
-from scipy.optimize import least_squares
 from material_model import MaterialModel
-from vws_models import increase_matrix_size, central_differentiation, map_elements_to_centraldiff, read_input_file
-
+from scipy.optimize import least_squares
+from vws_models import central_differentiation, increase_matrix_size, map_elements_to_centraldiff, read_input_file
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -20,8 +19,7 @@ DATA_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "test_
 
 
 def run_inverse_model(displacement_field, X, Y, Z, cube_size, initial_guess, bounds, material_model):
-    """
-    Optimize material parameters using least squares based on internal vs external virtual work.
+    """Optimize material parameters using least squares based on internal vs external virtual work.
     """
     name = material_model.name
 
@@ -60,8 +58,7 @@ def run_inverse_model(displacement_field, X, Y, Z, cube_size, initial_guess, bou
 
 
 def load_common_fields(folder):
-    """
-    Loads nodal coordinates and displacement fields, computes deformation gradient tensors,
+    """Loads nodal coordinates and displacement fields, computes deformation gradient tensors,
     and estimates cube element volume.
 
     Returns:
@@ -95,8 +92,7 @@ def load_common_fields(folder):
 
 
 def load_hgo_fields(folder):
-    """
-    Loads HGO-specific displacement, volume, and mesh dimensions.
+    """Loads HGO-specific displacement, volume, and mesh dimensions.
     """
     X, Y, Z, tensor_displacement_list, cube_size = load_common_fields(folder)
     volume_matrix = np.load(f"{folder}/volume_matrix.npy")
@@ -142,7 +138,7 @@ if __name__ == "__main__":
         # Run optimization
         result = run_inverse_model(disp_tensor, X, Y, Z, cube_size, initial_guess, bounds, linear_model)
         # logging.info(f"Linear model result: {result_linear}")
-        logging.info(f"Linear model result: E1 = %.2f, E2 = %.2f", *result)
+        logging.info("Linear model result: E1 = %.2f, E2 = %.2f", *result)
 
         # Run sensitivity analysis
         deviation = 0.05
@@ -173,6 +169,6 @@ if __name__ == "__main__":
         # Run optimization
         result_hgo = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, hgo_model)
         # logging.info(f"HGO model result: {result_hgo}")
-        logging.info(f"HGO model result: C10 = %.2f, D1 = %.2e, kappa = %.3f", *result_hgo)
+        logging.info("HGO model result: C10 = %.2f, D1 = %.2e, kappa = %.3f", *result_hgo)
 
     logging.info(f"Total runtime: {time.time() - start_time}")
