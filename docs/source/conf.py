@@ -3,7 +3,6 @@
 # -- Project information
 from fim import __project__, __version__
 
-
 project = __project__
 copyright = "2023, SSEC-JHU"
 author = "SSEC-JHU"

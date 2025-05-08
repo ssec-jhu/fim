@@ -179,7 +179,6 @@ def U_star_x_sin_devX(x, y, z, L, H):
     c = 2e-5
     d = np.sqrt(x**2 + y**2)
     t = z / H
-    safe_d = np.where(d == 0, 1e-10, d)
     expr1 = c * t * np.pi / (L / 2)
     sin_term = np.sin(2 * np.pi * d / (L / 2))
     cos_term = np.cos(2 * np.pi * d / (L / 2))
@@ -191,7 +190,6 @@ def U_star_x_sin_devY(x, y, z, L, H):
     c = 2e-5
     d = np.sqrt(x**2 + y**2)
     t = z / H
-    safe_d = np.where(d == 0, 1e-10, d)
     sin_term = np.sin(2 * np.pi * d / (L / 2))
     cos_term = np.cos(2 * np.pi * d / (L / 2))
     expr = c * x * t * ((-y / d**3) * sin_term + (cos_term * 2 * np.pi * y / (d**2 * (L / 2))))
@@ -201,7 +199,6 @@ def U_star_x_sin_devY(x, y, z, L, H):
 def U_star_x_sin_devZ(x, y, z, L, H):
     c = 2e-5
     d = np.sqrt(x**2 + y**2)
-    t = z / H
     expr = c * x / d * (1 / H) * np.sin(2 * np.pi * d / (L / 2))
     return np.where((d > 0) & (d < L / 2), expr, 0)
 
@@ -210,7 +207,6 @@ def U_star_y_sin_devX(x, y, z, L, H):
     c = 2e-5
     d = np.sqrt(x**2 + y**2)
     t = z / H
-    safe_d = np.where(d == 0, 1e-10, d)
     sin_term = np.sin(2 * np.pi * d / (L / 2))
     cos_term = np.cos(2 * np.pi * d / (L / 2))
     expr = c * y * t * ((-x / d**3) * sin_term + (cos_term * 2 * np.pi * x / (d**2 * (L / 2))))
@@ -221,7 +217,6 @@ def U_star_y_sin_devY(x, y, z, L, H):
     c = 2e-5
     d = np.sqrt(x**2 + y**2)
     t = z / H
-    safe_d = np.where(d == 0, 1e-10, d)
     expr1 = c * t * np.pi / (L / 2)
     sin_term = np.sin(2 * np.pi * d / (L / 2))
     cos_term = np.cos(2 * np.pi * d / (L / 2))
@@ -232,7 +227,6 @@ def U_star_y_sin_devY(x, y, z, L, H):
 def U_star_y_sin_devZ(x, y, z, L, H):
     c = 2e-5
     d = np.sqrt(x**2 + y**2)
-    t = z / H
     expr = c * y / d * (1 / H) * np.sin(2 * np.pi * d / (L / 2))
     return np.where((d > 0) & (d < L / 2), expr, 0)
 
@@ -265,7 +259,7 @@ def U_star_z_pw_vol_devX(x, y, z, L, H):
     k = (c / 2 * (L / 4 - a) - c * L / 4) / ((L / 4 - a) / 2 + L / 8)
 
     result = np.zeros_like(d)
-    mask1 = d <= a
+    # mask1 = d <= a
     mask2 = (d > a) & (d <= (L / 4))
     mask3 = (d > (L / 4)) & (d < L / 2)
 
@@ -283,7 +277,7 @@ def U_star_z_pw_vol_devY(x, y, z, L, H):
     k = (c / 2 * (L / 4 - a) - c * L / 4) / ((L / 4 - a) / 2 + L / 8)
 
     result = np.zeros_like(d)
-    mask1 = d <= a
+    # mask1 = d <= a
     mask2 = (d > a) & (d <= (L / 4))
     mask3 = (d > (L / 4)) & (d < L / 2)
 
@@ -296,7 +290,6 @@ def U_star_z_pw_vol_devZ(x, y, z, L, H):
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
     a_0 = contact_radius * 2
-    t = z / H
     a = a_0
     k = (c / 2 * (L / 4 - a) - c * L / 4) / ((L / 4 - a) / 2 + L / 8)
 
@@ -498,12 +491,12 @@ def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z
     )
 
     C_stiffness = np.linalg.inv(S)
-    I = np.eye(3)
+    I3 = np.eye(3)
 
     deformation_gradients = np.array(tensor_displacement_list)
 
     # Precompute deformation gradient F
-    F = deformation_gradients + I
+    F = deformation_gradients + I3
 
     # Determinant and Inverse
     J = np.linalg.det(F)
@@ -511,7 +504,7 @@ def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z
 
     # Cauchy-Green Tensor and Green-Lagrange Strain
     C = np.einsum("...ji,...jk->...ik", F, F)
-    E = 0.5 * (C - I)
+    E = 0.5 * (C - I3)
 
     # Strain in Voigt notation
     e_vec = np.stack(
@@ -553,8 +546,8 @@ def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa,
         phi: array of residuals [IVW5 - EVW5, IVW3] scaled by 1e10
     """
     a04 = np.array([1, 0, 0]).T
-    I = np.eye(3)
-    f = np.array(tensor_displacement_list) + I[None, None, None, :, :]
+    I3 = np.eye(3)
+    f = np.array(tensor_displacement_list) + I3[None, None, None, :, :]
     J = np.linalg.det(f)
     f_inv = np.linalg.inv(f)
     f_iso = J[..., None, None] ** (-1 / 3) * f
@@ -568,22 +561,22 @@ def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa,
     a4_iso = np.einsum("...ij,j->...i", f_iso, a04)
     I4 = np.einsum("...i,...i->...", a4, a4)
     I4_iso = J ** (-2 / 3) * I4
-    A4 = np.einsum("...i,...j->...ij", a4, a4)
+    # A4 = np.einsum("...i,...j->...ij", a4, a4)
     A4_iso = np.einsum("...i,...j->...ij", a4_iso, a4_iso)
 
     E_iso = kappa * I1_iso + (1 - 3 * kappa) * I4_iso - 1
 
-    sigma_iso = (2 * C10 / J ** (5 / 3))[..., None, None] * (b - I * I1[..., None, None] / 3)
+    sigma_iso = (2 * C10 / J ** (5 / 3))[..., None, None] * (b - I3 * I1[..., None, None] / 3)
     sigma_aniso = (
         (2 * k1 * E_iso / J ** (5 / 3))[..., None, None]
         * np.exp(k2 * E_iso**2)[..., None, None]
         * (
             kappa * b
             + (1 - 3 * kappa) * A4_iso
-            - (1 / 3) * I * (kappa * I1[..., None, None] + (1 - 3 * kappa) * I4[..., None, None])
+            - (1 / 3) * I3 * (kappa * I1[..., None, None] + (1 - 3 * kappa) * I4[..., None, None])
         )
     )
-    sigma_vol = (1 / D1) * (J - 1 / J)[..., None, None] * I
+    sigma_vol = (1 / D1) * (J - 1 / J)[..., None, None] * I3
     sigma = sigma_iso + sigma_aniso + sigma_vol
 
     # pk1 = J[..., None, None] * np.einsum("...ij,...jk->...ik", sigma, f_inv.transpose(0, 1, 2, 4, 3))
@@ -635,22 +628,22 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
     du_star_4[..., 1, 2] = U_star_y_sin_devZ(X1, X2, X3, L, H)
 
     # Internal virtual work (IVW) for each field: integrate pk1 : du_star over volume
-    ivw_1 = np.sum(pk1 * du_star_1, axis=(-2, -1)) * volume_element
+    # ivw_1 = np.sum(pk1 * du_star_1, axis=(-2, -1)) * volume_element
     ivw_2 = np.sum(pk1 * du_star_2, axis=(-2, -1)) * volume_element
     ivw_3 = np.sum(pk1 * du_star_3, axis=(-2, -1)) * volume_element
-    ivw_4 = np.sum(pk1 * du_star_4, axis=(-2, -1)) * volume_element
+    # ivw_4 = np.sum(pk1 * du_star_4, axis=(-2, -1)) * volume_element
 
     # Total internal virtual work for each field (sum over all elements)
-    total_IVW_1 = np.sum(ivw_1)
+    # total_IVW_1 = np.sum(ivw_1)
     total_IVW_2 = np.sum(ivw_2)
     total_IVW_3 = np.sum(ivw_3)
-    total_IVW_4 = np.sum(ivw_4)
+    # total_IVW_4 = np.sum(ivw_4)
 
     # External virtual work (EVW) for each field using applied force and geometry
-    evw_1 = -Force * U_star_z_cos(0, 0, H, L, H)
+    # evw_1 = -Force * U_star_z_cos(0, 0, H, L, H)
     evw_2 = -Force * U_star_z_pw(0, 0, H, L, H)
-    evw_3 = 0.0  # no external work for purely in-plane virtual field
-    evw_4 = -Force * U_star_z_pw(0, 0, H, L, H)  # (same as field 2 shape at top)
+    # evw_3 = 0.0  # no external work for purely in-plane virtual field
+    # evw_4 = -Force * U_star_z_pw(0, 0, H, L, H)  # (same as field 2 shape at top)
 
     # Assemble residual vector phi based on mode
     if mode == "linear":
