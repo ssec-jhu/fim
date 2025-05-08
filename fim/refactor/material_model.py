@@ -9,8 +9,7 @@ from vws_models import calculate_VWS_hgo, calculate_VWS_linear, sensitivity_full
 
 
 class MaterialModel:
-    """Encapsulates logic for different material models and their parameter management.
-    """
+    """Encapsulates logic for different material models and their parameter management."""
 
     def __init__(self, model_name: str, parameters: dict):
         self.name = model_name

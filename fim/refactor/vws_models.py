@@ -2,7 +2,6 @@
 Description: Implements full-field virtual fields method computations for supported material models.
 """
 
-
 import numpy as np
 
 depth_indentation = 3.2e-05

@@ -1,9 +1,9 @@
+from multiprocessing import Pool
+
 import numpy as np
 import pandas as pd
 import scipy
 from scipy.optimize import least_squares, minimize
-from multiprocessing import Pool
-
 
 decimal_places = 10
 index = 0

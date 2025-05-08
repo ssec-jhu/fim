@@ -1,6 +1,4 @@
-"""Main script for running VFM inverse modeling with different material models
-
-"""
+"""Main script for running VFM inverse modeling with different material models"""
 
 import logging
 import os
@@ -19,8 +17,7 @@ DATA_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "test_
 
 
 def run_inverse_model(displacement_field, X, Y, Z, cube_size, initial_guess, bounds, material_model):
-    """Optimize material parameters using least squares based on internal vs external virtual work.
-    """
+    """Optimize material parameters using least squares based on internal vs external virtual work."""
     name = material_model.name
 
     if name == "linear":
@@ -92,8 +89,7 @@ def load_common_fields(folder):
 
 
 def load_hgo_fields(folder):
-    """Loads HGO-specific displacement, volume, and mesh dimensions.
-    """
+    """Loads HGO-specific displacement, volume, and mesh dimensions."""
     X, Y, Z, tensor_displacement_list, cube_size = load_common_fields(folder)
     volume_matrix = np.load(f"{folder}/volume_matrix.npy")
 
