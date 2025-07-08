@@ -1,5 +1,6 @@
 """Main script for running VFM inverse modeling with different material models"""
 
+import argparse
 import logging
 import os
 import time
@@ -9,11 +10,25 @@ from material_model import MaterialModel
 from scipy.optimize import least_squares
 from vws_models import central_differentiation, increase_matrix_size, map_elements_to_centraldiff, read_input_file
 
-# Set up logging
+# Setup logging
 logging.basicConfig(level=logging.INFO)
 
 # Define root path to test data
 DATA_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "test_data"))
+DEFAULT_PATHS = {
+    "linear": os.path.join(DATA_ROOT, "80um"),
+    "hgo": os.path.join(DATA_ROOT, "HGO"),
+}
+
+# CLI
+parser = argparse.ArgumentParser(description="Run FIM Material Model Evaluation")
+parser.add_argument("--model", type=str, choices=["linear", "hgo"], help="Material model type")
+parser.add_argument("--data_path", type=str, help="Path to input data folder")
+args = parser.parse_args()
+
+# Resolve inputs
+model_name = args.model if args.model else "linear"
+data_path = args.data_path if args.data_path else DEFAULT_PATHS[model_name]
 
 
 def run_inverse_model(displacement_field, X, Y, Z, cube_size, initial_guess, bounds, material_model):
@@ -105,11 +120,10 @@ def load_hgo_fields(folder):
 if __name__ == "__main__":
     start_time = time.time()
 
-    Model = "hgo"  # or 'hgo'
+    logging.info(f"Using model: {model_name}, data_path: {data_path}")
 
-    if Model.lower() == "linear":
+    if model_name == "linear":
         # === Linear Model ===
-        data_path = os.path.join(DATA_ROOT, "80um")
         X, Y, Z, disp_tensor, cube_size = load_common_fields(data_path)
         L = np.ceil((np.max(X) - np.min(X)) * 1e4) / 1e4
         W = np.ceil((np.max(Y) - np.min(Y)) * 1e4) / 1e4
@@ -140,9 +154,8 @@ if __name__ == "__main__":
         deviation = 0.05
         sens = linear_model.sensitivity_analysis(disp_tensor, X, Y, Z, cube_size, L, H, deviation)
 
-    if Model.lower() == "hgo":
+    elif model_name == "hgo":
         # === HGO Model ===
-        data_path = os.path.join(DATA_ROOT, "HGO")
         X, Y, Z, disp_tensor, L, W, H, volume_matrix = load_hgo_fields(data_path)
 
         hgo_params = {
