@@ -453,7 +453,7 @@ def map_elements_to_centraldiff(dUx_dx, dUy_dx, dUz_dx, dUx_dy, dUy_dy, dUz_dy, 
     return tensor_array
 
 
-def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, cube_size, L, H, output=1):
+def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=1):
     """Calculate the virtual work residuals for a linear orthotropic material model.
 
     Args:
@@ -461,7 +461,7 @@ def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z
         E1, E2, v12, v23, Gt: material properties
         X, Y, Z: coordinate grids
         Force: applied load
-        cube_size: voxel volume
+        volume_matrix: Per-voxel weighted volume map
         L, H: sample dimensions
         mode: 'phi' or 'residual'
 
@@ -526,7 +526,7 @@ def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z
     pk1 = J[..., None, None] * np.einsum("...ij,...kj->...ik", sigma, F_inv)
 
     # Compute the virtual work residuals using predefined virtual displacement fields (Linear mode)
-    phi = calculate_VWS_virtual_work(pk1, X, Y, Z, cube_size, Force, L, H, mode="linear")
+    phi = calculate_VWS_virtual_work(pk1, X, Y, Z, volume_matrix, Force, L, H, mode="linear")
 
     return phi * 1e10 if output == 1 else np.sqrt(phi[0] ** 2)
 
@@ -641,6 +641,8 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
 
     # External virtual work (EVW) for each field using applied force and geometry
     # evw_1 = -Force * U_star_z_cos(0, 0, H, L, H)
+
+         
     evw_2 = -Force * U_star_z_pw(0, 0, H, L, H)
     # evw_3 = 0.0  # no external work for purely in-plane virtual field
     # evw_4 = -Force * U_star_z_pw(0, 0, H, L, H)  # (same as field 2 shape at top)
@@ -649,6 +651,7 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
     if mode == "linear":
         # Linear mode: use virtual fields 2 and 3
         phi = np.array([total_IVW_2 - evw_2, total_IVW_3])
+
 
     elif mode == "hgo":
         # du_star_5: z_pw_vol in u3 only (vertical piecewise volumetric field)
@@ -671,7 +674,7 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
     return phi
 
 
-def sensitivity_full(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, cube_size, L, H, deviation):
+def sensitivity_full(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, deviation):
     """Perform sensitivity analysis for the linear material model using finite difference.
 
     Parameters:
@@ -679,7 +682,7 @@ def sensitivity_full(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Fo
         E1, E2, v12, v23, Gt: material parameters
         X, Y, Z: coordinate grids
         Force: scalar external load
-        cube_size: voxel volume
+        volume_matrix: Per-voxel weighted volume map
         L, H: sample dimensions
         deviation: relative perturbation ratio (e.g., 0.05 for 5%)
 
@@ -696,24 +699,24 @@ def sensitivity_full(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Fo
 
     # Compute the baseline residual
     phi_base = calculate_VWS_linear(
-        tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, cube_size, L, H, output=2
+        tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
     )
 
     # Compute residuals for each perturbed parameter
     phi_E1_1 = calculate_VWS_linear(
-        tensor_displacement_list, E1_1, E2, v12, v23, Gt, X, Y, Z, Force, cube_size, L, H, output=2
+        tensor_displacement_list, E1_1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
     )
     phi_E2_1 = calculate_VWS_linear(
-        tensor_displacement_list, E1, E2_1, v12, v23, Gt, X, Y, Z, Force, cube_size, L, H, output=2
+        tensor_displacement_list, E1, E2_1, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
     )
     phi_v12_1 = calculate_VWS_linear(
-        tensor_displacement_list, E1, E2, v12_1, v23, Gt, X, Y, Z, Force, cube_size, L, H, output=2
+        tensor_displacement_list, E1, E2, v12_1, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
     )
     phi_v23_1 = calculate_VWS_linear(
-        tensor_displacement_list, E1, E2, v12, v23_1, Gt, X, Y, Z, Force, cube_size, L, H, output=2
+        tensor_displacement_list, E1, E2, v12, v23_1, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
     )
     phi_Gt_1 = calculate_VWS_linear(
-        tensor_displacement_list, E1, E2, v12, v23, Gt_1, X, Y, Z, Force, cube_size, L, H, output=2
+        tensor_displacement_list, E1, E2, v12, v23, Gt_1, X, Y, Z, Force, volume_matrix, L, H, output=2
     )
 
     # Fill diagonal entries (squared normalized differences)
