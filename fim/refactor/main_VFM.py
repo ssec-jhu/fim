@@ -45,7 +45,9 @@ def run_inverse_model(displacement_field, X, Y, Z, volume_matrix, initial_guess,
             L = material_model.get_parameter("L")
             H = material_model.get_parameter("H")
             Force = material_model.get_parameter("Force")
-            return material_model.model_func(displacement_field, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H)
+            return material_model.model_func(
+                displacement_field, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H
+            )
 
     elif name == "hgo":
 

@@ -642,7 +642,6 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
     # External virtual work (EVW) for each field using applied force and geometry
     # evw_1 = -Force * U_star_z_cos(0, 0, H, L, H)
 
-         
     evw_2 = -Force * U_star_z_pw(0, 0, H, L, H)
     # evw_3 = 0.0  # no external work for purely in-plane virtual field
     # evw_4 = -Force * U_star_z_pw(0, 0, H, L, H)  # (same as field 2 shape at top)
@@ -651,7 +650,6 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
     if mode == "linear":
         # Linear mode: use virtual fields 2 and 3
         phi = np.array([total_IVW_2 - evw_2, total_IVW_3])
-
 
     elif mode == "hgo":
         # du_star_5: z_pw_vol in u3 only (vertical piecewise volumetric field)
