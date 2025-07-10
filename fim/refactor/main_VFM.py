@@ -97,10 +97,6 @@ def load_common_fields(folder):
     grads = central_differentiation(Ux_e, Uy_e, Uz_e, X_e, Y_e, Z_e)
     tensor_displacement_list = map_elements_to_centraldiff(*grads)
 
-    L_dim = np.mean(np.diff(X[0, :, 0]))
-    W_dim = np.mean(np.diff(Y[:, 0, 0]))
-    H_dim = np.mean(np.diff(Z[0, 0, :]))
-
     volume_matrix = np.load(f"{folder}/volume_matrix.npy")
 
     return X, Y, Z, tensor_displacement_list, volume_matrix
