@@ -31,7 +31,7 @@ model_name = args.model if args.model else "linear"
 data_path = args.data_path if args.data_path else DEFAULT_PATHS[model_name]
 
 
-def run_inverse_model(displacement_field, X, Y, Z, cube_size, initial_guess, bounds, material_model):
+def run_inverse_model(displacement_field, X, Y, Z, volume_matrix, initial_guess, bounds, material_model):
     """Optimize material parameters using least squares based on internal vs external virtual work."""
     name = material_model.name
 
@@ -45,7 +45,9 @@ def run_inverse_model(displacement_field, X, Y, Z, cube_size, initial_guess, bou
             L = material_model.get_parameter("L")
             H = material_model.get_parameter("H")
             Force = material_model.get_parameter("Force")
-            return material_model.model_func(displacement_field, E1, E2, v12, v23, Gt, X, Y, Z, Force, cube_size, L, H)
+            return material_model.model_func(
+                displacement_field, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H
+            )
 
     elif name == "hgo":
 
@@ -71,12 +73,12 @@ def run_inverse_model(displacement_field, X, Y, Z, cube_size, initial_guess, bou
 
 def load_common_fields(folder):
     """Loads nodal coordinates and displacement fields, computes deformation gradient tensors,
-    and estimates cube element volume.
+    and load volume_matrix.
 
     Returns:
         X, Y, Z: 3D coordinate grids
         tensor_displacement_list: ndarray of shape (Nx, Ny, Nz, 3, 3)
-        cube_size: scalar volume per voxel
+        volume_matrix: per-voxel volume weights matrix
     """
     X = np.load(f"{folder}/X.npy")
     Y = np.load(f"{folder}/Y.npy")
@@ -95,18 +97,14 @@ def load_common_fields(folder):
     grads = central_differentiation(Ux_e, Uy_e, Uz_e, X_e, Y_e, Z_e)
     tensor_displacement_list = map_elements_to_centraldiff(*grads)
 
-    L_dim = np.mean(np.diff(X[0, :, 0]))
-    W_dim = np.mean(np.diff(Y[:, 0, 0]))
-    H_dim = np.mean(np.diff(Z[0, 0, :]))
-    cube_size = L_dim * W_dim * H_dim
+    volume_matrix = np.load(f"{folder}/volume_matrix.npy")
 
-    return X, Y, Z, tensor_displacement_list, cube_size
+    return X, Y, Z, tensor_displacement_list, volume_matrix
 
 
 def load_hgo_fields(folder):
     """Loads HGO-specific displacement, volume, and mesh dimensions."""
-    X, Y, Z, tensor_displacement_list, cube_size = load_common_fields(folder)
-    volume_matrix = np.load(f"{folder}/volume_matrix.npy")
+    X, Y, Z, tensor_displacement_list, volume_matrix = load_common_fields(folder)
 
     undeformed_nodes, connectivity = read_input_file(f"{folder}/350k.inp")
 
@@ -124,7 +122,7 @@ if __name__ == "__main__":
 
     if model_name == "linear":
         # === Linear Model ===
-        X, Y, Z, disp_tensor, cube_size = load_common_fields(data_path)
+        X, Y, Z, disp_tensor, volume_matrix = load_common_fields(data_path)
         L = np.ceil((np.max(X) - np.min(X)) * 1e4) / 1e4
         W = np.ceil((np.max(Y) - np.min(Y)) * 1e4) / 1e4
         H = np.ceil((np.max(Z) - np.min(Z)) * 1e4) / 1e4
@@ -146,13 +144,13 @@ if __name__ == "__main__":
         bounds = ((2000, 500), (9000, 2500))
 
         # Run optimization
-        result = run_inverse_model(disp_tensor, X, Y, Z, cube_size, initial_guess, bounds, linear_model)
+        result = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, linear_model)
         # logging.info(f"Linear model result: {result_linear}")
         logging.info("Linear model result: E1 = %.2f, E2 = %.2f", *result)
 
         # Run sensitivity analysis
         deviation = 0.05
-        sens = linear_model.sensitivity_analysis(disp_tensor, X, Y, Z, cube_size, L, H, deviation)
+        sens = linear_model.sensitivity_analysis(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
 
     elif model_name == "hgo":
         # === HGO Model ===
