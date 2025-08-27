@@ -589,28 +589,28 @@ def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa,
 
 def calculate_VWS_nh(tensor_displacement_list, X, Y, Z, C10, D1, volume_matrix, Force, L, H):
     I3 = np.eye(3)
-    F  = tensor_displacement_list + I3
-    J  = np.linalg.det(F)
+    F = tensor_displacement_list + I3
+    J = np.linalg.det(F)
     Finv = np.linalg.inv(F)
 
     # invariants
-    b  = np.einsum("...ik,...jk->...ij", F, F)          # b = F F^T
-    c  = np.einsum("...ji,...jk->...ik", F, F)          # C = F^T F
+    b = np.einsum("...ik,...jk->...ij", F, F)  # b = F F^T
+    c = np.einsum("...ji,...jk->...ik", F, F)  # C = F^T F
     I1 = np.trace(c, axis1=-2, axis2=-1)[..., None, None]
 
     # Cauchy stress: isochoric NH + volumetric (match HGO convention)
-    sigma_iso = (2*C10*J**(-5/3))[...,None,None] * (b - (I3*I1/3))
-    sigma_vol = ((1/D1)*(J - 1/J))[...,None,None] * I3
+    sigma_iso = (2 * C10 * J ** (-5 / 3))[..., None, None] * (b - (I3 * I1 / 3))
+    sigma_vol = ((1 / D1) * (J - 1 / J))[..., None, None] * I3
     sigma = sigma_iso + sigma_vol
 
     # First Piola–Kirchhoff
-    pk1 = J[...,None,None] * np.einsum("...ij,...kj->...ik", sigma, Finv)
+    pk1 = J[..., None, None] * np.einsum("...ij,...kj->...ik", sigma, Finv)
 
     # Use the same virtual fields set as HGO (5 & 3)
     phi = calculate_VWS_virtual_work(pk1, X, Y, Z, volume_matrix, Force, L, H, mode="nh")
     return phi * 1e10
 
-    
+
 def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
     """Compute internal (IVW) and external (EVW) virtual work contributions for five
     predefined virtual fields, and return the residual vector phi for the given mode.
@@ -688,7 +688,7 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
 
         # HGO mode: use virtual fields 5 and 3
         phi = np.array([total_IVW_5 - evw_5, total_IVW_3])
-    
+
     elif mode == "nh":
         # build field 5 (volumetric) like HGO
         du_star_5 = np.zeros_like(pk1)
@@ -696,15 +696,15 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
         du_star_5[..., 2, 1] = U_star_z_pw_vol_devY(X1, X2, X3, L, H)
         du_star_5[..., 2, 2] = U_star_z_pw_vol_devZ(X1, X2, X3, L, H)
 
-        ivw_5       = np.sum(pk1 * du_star_5, axis=(-2, -1)) * volume_element
+        ivw_5 = np.sum(pk1 * du_star_5, axis=(-2, -1)) * volume_element
         total_IVW_5 = np.sum(ivw_5)
-        evw_5       = -Force * U_star_z_pw_vol(0, 0, H, L, H)
+        evw_5 = -Force * U_star_z_pw_vol(0, 0, H, L, H)
 
         # ORIGINAL LOGIC: [field 3, field 5 − EVW5], Need double-check
         phi = np.array([total_IVW_3, total_IVW_5 - evw_5])
-  
+
         # ORIGINAL  phi_res=np.sqrt(phi[0]**2 + phi[1]**2) & return phi_res
-        phi = np.sqrt(phi[0]**2 + phi[1]**2)
+        phi = np.sqrt(phi[0] ** 2 + phi[1] ** 2)
 
     else:
         raise ValueError(f"Unsupported mode '{mode}', choose 'linear' or 'hgo'.")

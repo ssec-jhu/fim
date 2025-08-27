@@ -22,7 +22,7 @@ class MaterialModel:
             return calculate_VWS_linear
         if model_name == "hgo":
             return calculate_VWS_hgo
-        if model_name == 'nh':
+        if model_name == "nh":
             return calculate_VWS_nh
         raise ValueError(f"Unsupported model name: {model_name}")
 

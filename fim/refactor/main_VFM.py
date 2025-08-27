@@ -18,7 +18,7 @@ DATA_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "test_
 DEFAULT_PATHS = {
     "linear": os.path.join(DATA_ROOT, "80um"),
     "hgo": os.path.join(DATA_ROOT, "HGO"),
-    "nh": os.path.join(DATA_ROOT, "NH")
+    "nh": os.path.join(DATA_ROOT, "NH"),
 }
 
 # CLI
@@ -65,16 +65,15 @@ def run_inverse_model(displacement_field, X, Y, Z, volume_matrix, initial_guess,
             )
 
     elif name == "nh":
+
         def residual(x):
             C10, D1 = x
             L = material_model.get_parameter("L")
             H = material_model.get_parameter("H")
             Force = material_model.get_parameter("Force")
             volume_matrix = material_model.get_parameter("volume_matrix")
-            return material_model.model_func(
-                displacement_field, X, Y, Z, C10, D1, volume_matrix, Force, L, H
-            )
-        
+            return material_model.model_func(displacement_field, X, Y, Z, C10, D1, volume_matrix, Force, L, H)
+
     else:
         raise ValueError("Unknown material model type")
 
@@ -126,6 +125,7 @@ def load_hgo_fields(folder):
 
     return X, Y, Z, tensor_displacement_list, L, W, H, volume_matrix
 
+
 def load_nh_fields(folder):
     """Loads NH-specific displacement, volume, and mesh dimensions."""
     X, Y, Z, tensor_displacement_list, volume_matrix = load_common_fields(folder)
@@ -137,6 +137,7 @@ def load_nh_fields(folder):
     H = abs(np.max(undeformed_nodes[:, 3]) - np.min(undeformed_nodes[:, 3]))
 
     return X, Y, Z, tensor_displacement_list, L, W, H, volume_matrix
+
 
 if __name__ == "__main__":
     start_time = time.time()
@@ -200,13 +201,13 @@ if __name__ == "__main__":
         result_hgo = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, hgo_model)
         # logging.info(f"HGO model result: {result_hgo}")
         logging.info("HGO model result: C10 = %.2f, D1 = %.2e, kappa = %.3f", *result_hgo)
-        
+
     elif model_name == "nh":
         # === NH Model ===
         X, Y, Z, disp_tensor, L, W, H, volume_matrix = load_nh_fields(data_path)
         nh_params = {
-            "C10": 267*0.95,
-            "D1": 8e-4*0.95,
+            "C10": 267 * 0.95,
+            "D1": 8e-4 * 0.95,
             # "k1": 2000,
             # "k2": 5,
             # "kappa": 0.05,
@@ -214,17 +215,16 @@ if __name__ == "__main__":
             "W": W,
             "H": H,
             "volume_matrix": volume_matrix,
-            "Force": 1.05E-05,
+            "Force": 1.05e-05,
         }
         nh_model = MaterialModel("nh", nh_params)
 
         initial_guess = [nh_params["C10"], nh_params["D1"]]
-        bounds = ((100,1e-6),(1000,1e-3))
+        bounds = ((100, 1e-6), (1000, 1e-3))
 
         # Run optimization
         result_nh = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, nh_model)
         # logging.info(f"HGO model result: {result_hgo}")
         logging.info("NH model result: C10 = %.2f, D1 = %.2e", *result_nh)
-          
 
     logging.info(f"Total runtime: {time.time() - start_time}")
