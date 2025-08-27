@@ -1,4 +1,5 @@
 import numpy as np
+
 from refactor.material_model import MaterialModel
 # from refactor.vws_models import calculate_VWS_hgo, calculate_VWS_linear, sensitivity_full
 
