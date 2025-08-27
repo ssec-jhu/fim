@@ -5,7 +5,7 @@ and delegates computation to model-specific functions.
 
 import logging
 
-from vws_models import calculate_VWS_nh, calculate_VWS_hgo, calculate_VWS_linear, sensitivity_full
+from vws_models import calculate_VWS_hgo, calculate_VWS_linear, calculate_VWS_nh, sensitivity_full
 
 
 class MaterialModel:
