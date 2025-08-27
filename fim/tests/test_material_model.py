@@ -1,7 +1,7 @@
 import numpy as np
 
-from fim.refactor.material_model import MaterialModel
-from fim.refactor.vws_models import calculate_VWS_hgo, calculate_VWS_linear, sensitivity_full
+from refactor.material_model import MaterialModel
+# from refactor.vws_models import calculate_VWS_hgo, calculate_VWS_linear, sensitivity_full
 
 
 def test_linear_model_parameters():
