@@ -1,5 +1,5 @@
 import numpy as np
-from refactor.material_model import MaterialModel
+from fim.refactor.material_model import MaterialModel
 
 
 def test_linear_model_parameters():
