@@ -5,7 +5,7 @@ and delegates computation to model-specific functions.
 
 import logging
 
-from vws_models import calculate_VWS_hgo, calculate_VWS_linear, calculate_VWS_nh, sensitivity_full
+from fim.refactor.vws_models import calculate_VWS_hgo, calculate_VWS_linear, calculate_VWS_nh, sensitivity_full
 
 
 class MaterialModel:
@@ -31,18 +31,18 @@ class MaterialModel:
 
     def sensitivity_analysis(self, tensor_displacement_list, X, Y, Z, volume_matrix, L, H, deviation=0.05):
         if self.name != "linear":
-            # raise NotImplementedError("Sensitivity analysis is only available for the 'linear' model.")
+            raise NotImplementedError("Sensitivity analysis is only available for the 'linear' model.")
 
-            E1 = self.get_parameter("E1")
-            E2 = self.get_parameter("E2")
-            v12 = self.get_parameter("v12")
-            v23 = self.get_parameter("v23")
-            Gt = self.get_parameter("Gt")
-            Force = self.get_parameter("Force")
+        E1 = self.get_parameter("E1")
+        E2 = self.get_parameter("E2")
+        v12 = self.get_parameter("v12")
+        v23 = self.get_parameter("v23")
+        Gt = self.get_parameter("Gt")
+        Force = self.get_parameter("Force")
 
-            return sensitivity_full(
-                tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, deviation
-            )
+        return sensitivity_full(
+            tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, deviation
+        )
 
     def evaluate_virtual_fields(self, displacement_field, X, Y, Z, Force, volume_matrix):
         return self.model_func(displacement_field, X, Y, Z, Force, volume_matrix, self.params)

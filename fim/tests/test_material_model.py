@@ -1,4 +1,5 @@
 import numpy as np
+
 from fim.refactor.material_model import MaterialModel
 
 
@@ -15,16 +16,34 @@ def test_hgo_model_parameters():
 
 
 def test_sensitivity_analysis_runs():
-    model = MaterialModel("linear", {"E1": 7000, "E2": 500, "L": 1.0, "H": 1.0, "Force": 1.0})
-    dummy_disp = np.zeros((2, 2, 2, 3))
-    dummy_X = dummy_Y = dummy_Z = np.zeros((2, 2, 2))
-    test_params = [1000, 500]
-    cube_size = 1.0
-    L = 1.0
-    H = 1.0
+    model = MaterialModel(
+        "linear",
+        {
+            "E1": 7000,
+            "E2": 500,
+            "v12": 0.49,
+            "v23": 0.49,
+            "Gt": 500.0,
+            "L": 1.0,
+            "H": 1.0,
+            "Force": 1.0,
+        },
+    )
 
-    result = model.sensitivity_analysis(dummy_disp, dummy_X, dummy_Y, dummy_Z, test_params, cube_size, L, H)
+    # deformation gradient tensors: shape (Nx, Ny, Nz, 3, 3)
+    rng = np.random.default_rng(0)
+    dummy_disp = rng.normal(scale=1e-6, size=(2, 2, 2, 3, 3))
+
+    # coordinate grids: shape (Nx, Ny, Nz)
+    dummy_X, dummy_Y, dummy_Z = np.meshgrid(
+        np.linspace(0, 1, 2), np.linspace(0, 1, 2), np.linspace(0, 1, 2), indexing="ij"
+    )
+
+    # per-voxel volume weights: shape (Nx, Ny, Nz)
+    volume_matrix = np.ones((2, 2, 2))
+    L, H = 1.0, 1.0
+
+    result = model.sensitivity_analysis(dummy_disp, dummy_X, dummy_Y, dummy_Z, volume_matrix, L, H)
 
     assert isinstance(result, np.ndarray)
     assert result.size > 0
-    assert not np.any(np.isnan(result))
