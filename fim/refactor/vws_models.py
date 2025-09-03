@@ -789,11 +789,15 @@ def sensitivity_full(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Fo
 
     # Normalize matrix by the minimum value (ensures relative scaling)
     sens_matrix = np.abs(sens_matrix)
-    sens_matrix = sens_matrix / np.min(sens_matrix)
+    m = np.min(sens_matrix)
+    eps = 1e-12
 
+    if not np.isfinite(m) or m <= eps:
+        # degenerate case: skip normalization to avoid NaNs
+        return sens_matrix
     # Print for inspection
     print("Sensitivity Matrix (5x5):")
     for row in sens_matrix:
         print(" ".join(f"{value:10.4f}" for value in row))
 
-    return sens_matrix
+    return sens_matrix / m
