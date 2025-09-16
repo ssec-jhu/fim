@@ -8,7 +8,13 @@ import time
 import numpy as np
 from material_model import MaterialModel
 from scipy.optimize import least_squares
-from vws_models import central_differentiation, increase_matrix_size, map_elements_to_centraldiff, read_input_file
+
+from fim.refactor.vws_models_bak import (
+    central_differentiation,
+    increase_matrix_size,
+    map_elements_to_centraldiff,
+    read_input_file,
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

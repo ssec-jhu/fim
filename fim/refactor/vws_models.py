@@ -1,12 +1,36 @@
-"""VWS Model Functions
-Description: Implements full-field virtual fields method computations for supported material models.
 """
+VWS Model Functions (XYZ convention)
+------------------------------------
+This module implements full-field virtual fields method (VWS) computations for supported
+material models. Refactored for strict **(x, y, z)** ordering across all functions and arrays.
+
+Original function purposes:
+- `U_star_*` families: define virtual displacement fields used in the Virtual Fields Method.
+- `*_dev*` versions: spatial derivatives of the virtual displacement fields.
+- `increase_matrix_size`: utility to pad 3D grids by replication for differentiation.
+- `read_input_file`: parse Abaqus-style mesh input (nodes, connectivity).
+- `central_differentiation`: compute central finite differences of displacement fields.
+- `map_elements_to_centraldiff`: assemble gradient tensors from scalar derivatives.
+- `calculate_VWS_linear/hgo/nh`: material models (linear orthotropic, Holzapfel-Gasser-Ogden,
+Neo-Hookean).
+- `calculate_VWS_virtual_work`: compute internal/external virtual work with predefined fields.
+- `sensitivity_full`: finite-difference sensitivity analysis for the linear model.
+
+Axis convention in this refactored version:
+axis=0 → x, axis=1 → y, axis=2 → z.
+"""
+
+from __future__ import annotations
 
 import numpy as np
 
+# --- Indentation/sample constants ------------------------------------------------
 depth_indentation = 3.2e-05
 sphere_radius = 5e-4
 contact_radius = np.sqrt(depth_indentation * sphere_radius)
+
+
+# --- Virtual displacement primitives (all in xyz order) --------------------------
 
 
 def U_star_z_cos(x, y, z, L, H):
@@ -55,6 +79,9 @@ def U_star_y_sin(x, y, z, L, H):
     d = np.sqrt(x**2 + y**2)
     t = z / H
     return np.where((d > 0) & (d < L / 2), c * y / d * t * np.sin(2 * np.pi * d / (L / 2)), 0)
+
+
+# --- Derivatives of the virtual fields (xyz order) -------------------------------
 
 
 def U_star_z_cos_devX(x, y, z, L, H):
@@ -231,6 +258,9 @@ def U_star_y_sin_devZ(x, y, z, L, H):
     return np.where((d > 0) & (d < L / 2), expr, 0)
 
 
+# --- Volumetric variant used by HGO/NH modes ------------------------------------
+
+
 def U_star_z_pw_vol(x, y, z, L, H):
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
@@ -239,6 +269,18 @@ def U_star_z_pw_vol(x, y, z, L, H):
     a = a_0
     k = (c / 2 * (L / 4 - a) - c * L / 4) / ((L / 4 - a) / 2 + L / 8)
 
+    # Scalar path (e.g., EVW at (0,0,H))
+    if np.ndim(d) == 0:
+        if d <= a:
+            return c * t
+        elif d <= (L / 4):
+            return t * (c + (k - c) * (d - a) / (L / 4 - a))
+        elif d < (L / 2):
+            return t * (k - 4 * k * (d - L / 4) / L)
+        else:
+            return 0.0
+
+    # Array path (vectorized)
     result = np.zeros_like(d)
     mask1 = d <= a
     mask2 = (d > a) & (d <= (L / 4))
@@ -253,173 +295,192 @@ def U_star_z_pw_vol(x, y, z, L, H):
 def U_star_z_pw_vol_devX(x, y, z, L, H):
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
-    a_0 = contact_radius * 2
+    a = contact_radius * 2
     t = z / H
-    a = a_0
     k = (c / 2 * (L / 4 - a) - c * L / 4) / ((L / 4 - a) / 2 + L / 8)
 
-    result = np.zeros_like(d)
-    # mask1 = d <= a
-    mask2 = (d > a) & (d <= (L / 4))
-    mask3 = (d > (L / 4)) & (d < L / 2)
+    # scalar path
+    if np.ndim(d) == 0:
+        if d <= a:
+            return 0.0
+        if d <= (L / 4):
+            return t * ((k - c) * (x / d) / (L / 4 - a))
+        if d < (L / 2):
+            return t * (-4 * k * (x / d) / L)
+        return 0.0
 
-    result[mask2] = t[mask2] * ((k - c) * (x[mask2] / d[mask2]) / (L / 4 - a))
-    result[mask3] = t[mask3] * (-4 * k * (x[mask3] / d[mask3]) / L)
-    return result
+    # vectorized path
+    out = np.zeros_like(d)
+    m2 = (d > a) & (d <= (L / 4))
+    m3 = (d > (L / 4)) & (d < L / 2)
+    out[m2] = t[m2] * ((k - c) * (x[m2] / d[m2]) / (L / 4 - a))
+    out[m3] = t[m3] * (-4 * k * (x[m3] / d[m3]) / L)
+    return out
 
 
 def U_star_z_pw_vol_devY(x, y, z, L, H):
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
-    a_0 = contact_radius * 2
+    a = contact_radius * 2
     t = z / H
-    a = a_0
     k = (c / 2 * (L / 4 - a) - c * L / 4) / ((L / 4 - a) / 2 + L / 8)
 
-    result = np.zeros_like(d)
-    # mask1 = d <= a
-    mask2 = (d > a) & (d <= (L / 4))
-    mask3 = (d > (L / 4)) & (d < L / 2)
+    if np.ndim(d) == 0:
+        if d <= a:
+            return 0.0
+        if d <= (L / 4):
+            return t * ((k - c) * (y / d) / (L / 4 - a))
+        if d < (L / 2):
+            return t * (-4 * k * (y / d) / L)
+        return 0.0
 
-    result[mask2] = t[mask2] * ((k - c) * (y[mask2] / d[mask2]) / (L / 4 - a))
-    result[mask3] = t[mask3] * (-4 * k * (y[mask3] / d[mask3]) / L)
-    return result
+    out = np.zeros_like(d)
+    m2 = (d > a) & (d <= (L / 4))
+    m3 = (d > (L / 4)) & (d < L / 2)
+    out[m2] = t[m2] * ((k - c) * (y[m2] / d[m2]) / (L / 4 - a))
+    out[m3] = t[m3] * (-4 * k * (y[m3] / d[m3]) / L)
+    return out
 
 
 def U_star_z_pw_vol_devZ(x, y, z, L, H):
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
-    a_0 = contact_radius * 2
-    a = a_0
+    a = contact_radius * 2
     k = (c / 2 * (L / 4 - a) - c * L / 4) / ((L / 4 - a) / 2 + L / 8)
 
-    result = np.zeros_like(d)
-    mask1 = d <= a
-    mask2 = (d > a) & (d <= (L / 4))
-    mask3 = (d > (L / 4)) & (d < L / 2)
+    if np.ndim(d) == 0:
+        if d <= a:
+            return c / H
+        if d <= (L / 4):
+            return (1 / H) * (c + (k - c) * (d - a) / (L / 4 - a))
+        if d < (L / 2):
+            return (1 / H) * (k - 4 * k * (d - L / 4) / L)
+        return 0.0
 
-    result[mask1] = c / H
-    result[mask2] = (1 / H) * (c + (k - c) * (d[mask2] - a) / (L / 4 - a))
-    result[mask3] = (1 / H) * (k - 4 * k * (d[mask3] - L / 4) / L)
-    return result
+    out = np.zeros_like(d)
+    m1 = d <= a
+    m2 = (d > a) & (d <= (L / 4))
+    m3 = (d > (L / 4)) & (d < L / 2)
+    out[m1] = c / H
+    out[m2] = (1 / H) * (c + (k - c) * (d[m2] - a) / (L / 4 - a))
+    out[m3] = (1 / H) * (k - 4 * k * (d[m3] - L / 4) / L)
+    return out
 
 
-def increase_matrix_size(matrix):
-    # Get the original dimensions of the matrix
-    rows, cols, deps = matrix.shape
+# --- Utilities -------------------------------------------------------------------
 
-    # Create a new matrix with increased size
-    new_deps = deps + 2
-    new_rows = rows + 2
-    new_cols = cols + 2
-    new_matrix = np.zeros((new_rows, new_cols, new_deps), dtype=matrix.dtype)
 
-    # Copy the original data from the input matrix to the inner region of the new matrix
-    new_matrix[1:-1, 1:-1, 1:-1] = matrix
+def increase_matrix_size(matrix: np.ndarray) -> np.ndarray:
+    """Pad a 3D (x,y,z) matrix by one voxel on each face by replication."""
+    nx, ny, nz = matrix.shape
+    out = np.zeros((nx + 2, ny + 2, nz + 2), dtype=matrix.dtype)
+    out[1:-1, 1:-1, 1:-1] = matrix
 
-    # Extend the border of the new matrix by duplicating the values from the first inner layer
-    new_matrix[0, :, :] = new_matrix[1, :, :]
-    new_matrix[-1, :, :] = new_matrix[-2, :, :]
-    new_matrix[:, 0, :] = new_matrix[:, 1, :]
-    new_matrix[:, -1, :] = new_matrix[:, -2, :]
-    new_matrix[:, :, 0] = new_matrix[:, :, 1]
-    new_matrix[:, :, -1] = new_matrix[:, :, -2]
-
-    return new_matrix
+    # Replicate borders
+    out[0, :, :] = out[1, :, :]
+    out[-1, :, :] = out[-2, :, :]
+    out[:, 0, :] = out[:, 1, :]
+    out[:, -1, :] = out[:, -2, :]
+    out[:, :, 0] = out[:, :, 1]
+    out[:, :, -1] = out[:, :, -2]
+    return out
 
 
 def read_input_file(file_path):
-    nodes = []  # List to store nodal coordinates
-    connectivity = []  # List to store element connectivity
-    in_node_section = False
-    in_element_section = False
-    file = open(file_path)
-    Lines = file.readlines()
-    flag = 0
+    nodes, connectivity = [], []
+    in_tissue = in_node = in_elem = False
 
-    for line in Lines:
-        line = line.strip()
-        # change according to the input file
-        if line.startswith("*") and line.startswith("*Part, name=tissue"):
-            flag = 1
-            continue
-        if line.startswith("*Node") and flag == 1:
-            in_node_section = True
-            in_element_section = False
-            continue
-        if line.startswith("*Element") and flag == 1:
-            in_node_section = False
-            in_element_section = True
-            continue
-        if line.startswith("*"):
-            flag = 0
-            continue
-        if in_node_section and not in_element_section and flag == 1:
-            values_n = line.split(",")
-            node_info = [int(values_n[0])] + [np.double(values_n[i].strip()) for i in range(1, 4)]
-            nodes.append(node_info)
-            continue
+    with open(file_path, "r") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
 
-        if not in_node_section and in_element_section and flag == 1:
-            values_e = line.split(",")
-            if len(values_e) == 9:
-                element_info = [int(value) for value in values_e]
-                connectivity.append(element_info)
-            continue
+            if line.startswith("*"):
+                low = line.lower().replace(" ", "")
+                if low.startswith("*part") and "name=tissue" in low:
+                    in_tissue, in_node, in_elem = True, False, False
+                    continue
+                if low.startswith("*endpart"):
+                    in_tissue = in_node = in_elem = False
+                    continue
+                if in_tissue and low.startswith("*node"):
+                    in_node, in_elem = True, False
+                    continue
+                if in_tissue and low.startswith("*element"):
+                    in_node, in_elem = False, True
+                    continue
+                # other star lines end sub-section but keep in_tissue as-is
+                in_node = in_elem = False
+                continue
 
-        continue
+            if in_tissue and in_node:
+                vals = [v.strip() for v in line.split(",")]
+                if len(vals) >= 4:
+                    nid = int(vals[0])
+                    x, y, z = map(float, vals[1:4])
+                    nodes.append([nid, x, y, z])
+                continue
 
-    nodes = np.array(nodes)
-    connectivity = np.array(connectivity)
+            if in_tissue and in_elem:
+                vals = [v.strip() for v in line.split(",")]
+                # Support C3D4 (5 ints) and C3D8 (9 ints)
+                if len(vals) in (5, 9):
+                    try:
+                        connectivity.append([int(v) for v in vals])
+                    except ValueError:
+                        pass
+                continue
 
-    x_min = np.min(nodes[:, 1])
-    y_min = np.min(nodes[:, 2])
-    z_min = np.min(nodes[:, 3])
+    nodes = np.asarray(nodes, dtype=float)
+    connectivity = np.asarray(connectivity, dtype=int)
 
-    nodes[:, 1] = np.around((nodes[:, 1] - x_min), 15)
-    nodes[:, 2] = np.double(nodes[:, 2] - y_min)
-    nodes[:, 3] = np.double(nodes[:, 3] - z_min)
+    if nodes.size:
+        nodes[:, 1] -= nodes[:, 1].min()
+        nodes[:, 2] -= nodes[:, 2].min()
+        nodes[:, 3] -= nodes[:, 3].min()
 
     return nodes, connectivity
 
 
+# --- Core: central differences in strict (x,y,z) order ---------------------------
+
+
 def central_differentiation(Ux, Uy, Uz, X, Y, Z):
-    """Compute central finite differences of displacement fields (Ux, Uy, Uz) over a 3D grid (X, Y, Z).
+    """Central finite differences for displacement fields on an (x,y, z) grid.
 
-    Parameters:
-        Ux, Uy, Uz : ndarray
-            Displacement components with shape (rows, cols, deps).
-        X, Y, Z : ndarray
-            Coordinate grids matching the shape of displacement fields.
-        eps : float, optional
-            Minimum allowed spacing to avoid division by zero.
+    Inputs are 3D arrays of identical shape (Nx, Ny, Nz). Returns nine arrays
+    (all shape (Nx-2, Ny-2, Nz-2)) corresponding to \n
+        [dUx/dx, dUy/dx, dUz/dx,
+         dUx/dy, dUy/dy, dUz/dy,
+         dUx/dz, dUy/dz, dUz/dz]
 
-    Returns:
-        Tuple of 9 ndarrays:
-            dUx_dx, dUy_dx, dUz_dx,
-            dUx_dy, dUy_dy, dUz_dy,
-            dUx_dz, dUy_dz, dUz_dz
+    Axis mapping: axis0=x, axis1=y, axis2=z.
     """
     if not (Ux.shape == Uy.shape == Uz.shape == X.shape == Y.shape == Z.shape):
         raise ValueError("All input arrays must have the same shape.")
 
-    dx = X[1:-1, 2:, 1:-1] - X[1:-1, :-2, 1:-1]
-    dy = Y[2:, 1:-1, 1:-1] - Y[:-2, 1:-1, 1:-1]
+    # Spacings along each axis (x,y,z)
+    dx = X[2:, 1:-1, 1:-1] - X[:-2, 1:-1, 1:-1]
+    dy = Y[1:-1, 2:, 1:-1] - Y[1:-1, :-2, 1:-1]
     dz = Z[1:-1, 1:-1, 2:] - Z[1:-1, 1:-1, :-2]
 
     eps = 1e-12
-    dx = np.where(np.abs(dx) > eps, dx, eps)
-    dy = np.where(np.abs(dy) > eps, dy, eps)
-    dz = np.where(np.abs(dz) > eps, dz, eps)
+    dx = np.where(np.abs(dx) > eps, dx, np.sign(dx) * eps + eps)
+    dy = np.where(np.abs(dy) > eps, dy, np.sign(dy) * eps + eps)
+    dz = np.where(np.abs(dz) > eps, dz, np.sign(dz) * eps + eps)
 
-    dUx_dx = (Ux[1:-1, 2:, 1:-1] - Ux[1:-1, :-2, 1:-1]) / dx
-    dUy_dx = (Uy[1:-1, 2:, 1:-1] - Uy[1:-1, :-2, 1:-1]) / dx
-    dUz_dx = (Uz[1:-1, 2:, 1:-1] - Uz[1:-1, :-2, 1:-1]) / dx
+    # Derivatives wrt x (axis 0)
+    dUx_dx = (Ux[2:, 1:-1, 1:-1] - Ux[:-2, 1:-1, 1:-1]) / dx
+    dUy_dx = (Uy[2:, 1:-1, 1:-1] - Uy[:-2, 1:-1, 1:-1]) / dx
+    dUz_dx = (Uz[2:, 1:-1, 1:-1] - Uz[:-2, 1:-1, 1:-1]) / dx
 
-    dUx_dy = (Ux[2:, 1:-1, 1:-1] - Ux[:-2, 1:-1, 1:-1]) / dy
-    dUy_dy = (Uy[2:, 1:-1, 1:-1] - Uy[:-2, 1:-1, 1:-1]) / dy
-    dUz_dy = (Uz[2:, 1:-1, 1:-1] - Uz[:-2, 1:-1, 1:-1]) / dy
+    # Derivatives wrt y (axis 1)
+    dUx_dy = (Ux[1:-1, 2:, 1:-1] - Ux[1:-1, :-2, 1:-1]) / dy
+    dUy_dy = (Uy[1:-1, 2:, 1:-1] - Uy[1:-1, :-2, 1:-1]) / dy
+    dUz_dy = (Uz[1:-1, 2:, 1:-1] - Uz[1:-1, :-2, 1:-1]) / dy
 
+    # Derivatives wrt z (axis 2)
     dUx_dz = (Ux[1:-1, 1:-1, 2:] - Ux[1:-1, 1:-1, :-2]) / dz
     dUy_dz = (Uy[1:-1, 1:-1, 2:] - Uy[1:-1, 1:-1, :-2]) / dz
     dUz_dz = (Uz[1:-1, 1:-1, 2:] - Uz[1:-1, 1:-1, :-2]) / dz
@@ -428,46 +489,47 @@ def central_differentiation(Ux, Uy, Uz, X, Y, Z):
 
 
 def map_elements_to_centraldiff(dUx_dx, dUy_dx, dUz_dx, dUx_dy, dUy_dy, dUz_dy, dUx_dz, dUy_dz, dUz_dz):
-    """Map scalar gradient components to full 3x3 displacement gradient tensor at each voxel.
-
-    Returns:
-        tensor_array: ndarray of shape (Nx, Ny, Nz, 3, 3)
+    """Pack scalar gradients into a (Nx,Ny,Nz,3,3) displacement-gradient tensor.
+    All inputs must share the same (Nx,Ny,Nz) shape.
     """
     shape = dUx_dx.shape
     for arr in [dUy_dx, dUz_dx, dUx_dy, dUy_dy, dUz_dy, dUx_dz, dUy_dz, dUz_dz]:
         assert arr.shape == shape, "All central difference fields must have the same shape"
 
-    rows, cols, deps = shape
-    tensor_array = np.zeros((rows, cols, deps, 3, 3), dtype=np.float64)
+    nx, ny, nz = shape
+    tensor = np.zeros((nx, ny, nz, 3, 3), dtype=np.float64)
 
-    tensor_array[..., 0, 0] = dUx_dx
-    tensor_array[..., 0, 1] = dUx_dy
-    tensor_array[..., 0, 2] = dUx_dz
-    tensor_array[..., 1, 0] = dUy_dx
-    tensor_array[..., 1, 1] = dUy_dy
-    tensor_array[..., 1, 2] = dUy_dz
-    tensor_array[..., 2, 0] = dUz_dx
-    tensor_array[..., 2, 1] = dUz_dy
-    tensor_array[..., 2, 2] = dUz_dz
+    tensor[..., 0, 0] = dUx_dx
+    tensor[..., 0, 1] = dUx_dy
+    tensor[..., 0, 2] = dUx_dz
+    tensor[..., 1, 0] = dUy_dx
+    tensor[..., 1, 1] = dUy_dy
+    tensor[..., 1, 2] = dUy_dz
+    tensor[..., 2, 0] = dUz_dx
+    tensor[..., 2, 1] = dUz_dy
+    tensor[..., 2, 2] = dUz_dz
+    return tensor
 
-    return tensor_array
+
+# --- Linear / HGO / NH evaluators (unchanged math; xyz everywhere) ---------------
 
 
-def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=1):
-    """Calculate the virtual work residuals for a linear orthotropic material model.
-
-    Args:
-        tensor_displacement_list: ndarray (Nx, Ny, Nz, 3, 3)
-        E1, E2, v12, v23, Gt: material properties
-        X, Y, Z: coordinate grids
-        Force: applied load
-        volume_matrix: Per-voxel weighted volume map
-        L, H: sample dimensions
-        mode: 'phi' or 'residual'
-
-    Returns:
-        Virtual work difference phi or residual magnitude.
-    """
+def calculate_VWS_linear(
+    tensor_displacement_list,
+    E1,
+    E2,
+    v12,
+    v23,
+    Gt,
+    X,
+    Y,
+    Z,
+    Force,
+    volume_matrix,
+    L,
+    H,
+    output=1,
+):
     E3 = E2
     v21 = (E2 / E1) * v12
     v13 = v12
@@ -493,25 +555,17 @@ def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z
     C_stiffness = np.linalg.inv(S)
     I3 = np.eye(3)
 
-    deformation_gradients = np.array(tensor_displacement_list)
-
-    # Precompute deformation gradient F
-    F = deformation_gradients + I3
-
-    # Determinant and Inverse
+    F = np.array(tensor_displacement_list) + I3
     J = np.linalg.det(F)
     F_inv = np.linalg.inv(F)
 
-    # Cauchy-Green Tensor and Green-Lagrange Strain
     C = np.einsum("...ji,...jk->...ik", F, F)
     E = 0.5 * (C - I3)
 
-    # Strain in Voigt notation
     e_vec = np.stack(
         [E[..., 0, 0], E[..., 1, 1], E[..., 2, 2], 2 * E[..., 0, 1], 2 * E[..., 0, 2], 2 * E[..., 1, 2]], axis=-1
     )
 
-    # Stress in Voigt notation and tensor form
     sigma_vec = np.einsum("ij,...j->...i", C_stiffness, e_vec)
 
     sigma = np.zeros_like(F)
@@ -522,29 +576,13 @@ def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z
     sigma[..., 0, 2] = sigma[..., 2, 0] = sigma_vec[..., 4]
     sigma[..., 1, 2] = sigma[..., 2, 1] = sigma_vec[..., 5]
 
-    # Piola-Kirchhoff stress
     pk1 = J[..., None, None] * np.einsum("...ij,...kj->...ik", sigma, F_inv)
 
-    # Compute the virtual work residuals using predefined virtual displacement fields (Linear mode)
     phi = calculate_VWS_virtual_work(pk1, X, Y, Z, volume_matrix, Force, L, H, mode="linear")
-
     return phi * 1e10 if output == 1 else np.sqrt(phi[0] ** 2)
 
 
 def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa, volume_matrix, Force, L, H):
-    """Computes the internal and external virtual work terms for HGO hyperelastic material model.
-
-    Args:
-        tensor_displacement_list: ndarray of deformation gradients (Nx, Ny, Nz, 3, 3)
-        X, Y, Z: 3D mesh coordinates
-        C10, D1, k1, k2, kappa: material parameters
-        volume_matrix: per-voxel volume weights
-        Force: scalar load
-        L, H: sample size in X/Y and Z
-
-    Returns:
-        phi: array of residuals [IVW5 - EVW5, IVW3] scaled by 1e10
-    """
     a04 = np.array([1, 0, 0]).T
     I3 = np.eye(3)
     f = np.array(tensor_displacement_list) + I3[None, None, None, :, :]
@@ -561,7 +599,6 @@ def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa,
     a4_iso = np.einsum("...ij,j->...i", f_iso, a04)
     I4 = np.einsum("...i,...i->...", a4, a4)
     I4_iso = J ** (-2 / 3) * I4
-    # A4 = np.einsum("...i,...j->...ij", a4, a4)
     A4_iso = np.einsum("...i,...j->...ij", a4_iso, a4_iso)
 
     E_iso = kappa * I1_iso + (1 - 3 * kappa) * I4_iso - 1
@@ -579,10 +616,8 @@ def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa,
     sigma_vol = (1 / D1) * (J - 1 / J)[..., None, None] * I3
     sigma = sigma_iso + sigma_aniso + sigma_vol
 
-    # pk1 = J[..., None, None] * np.einsum("...ij,...jk->...ik", sigma, f_inv.transpose(0, 1, 2, 4, 3))
     pk1 = J[..., None, None] * np.einsum("...ij,...kj->...ik", sigma, f_inv)
 
-    # Compute the virtual work residuals using predefined virtual displacement fields (HGO mode)
     phi = calculate_VWS_virtual_work(pk1, X, Y, Z, volume_matrix, Force, L, H, mode="hgo")
     return phi * 1e10
 
@@ -593,47 +628,41 @@ def calculate_VWS_nh(tensor_displacement_list, X, Y, Z, C10, D1, volume_matrix, 
     J = np.linalg.det(F)
     Finv = np.linalg.inv(F)
 
-    # invariants
-    b = np.einsum("...ik,...jk->...ij", F, F)  # b = F F^T
-    c = np.einsum("...ji,...jk->...ik", F, F)  # C = F^T F
+    b = np.einsum("...ik,...jk->...ij", F, F)
+    c = np.einsum("...ji,...jk->...ik", F, F)
     I1 = np.trace(c, axis1=-2, axis2=-1)[..., None, None]
 
-    # Cauchy stress: isochoric NH + volumetric (match HGO convention)
     sigma_iso = (2 * C10 * J ** (-5 / 3))[..., None, None] * (b - (I3 * I1 / 3))
     sigma_vol = ((1 / D1) * (J - 1 / J))[..., None, None] * I3
     sigma = sigma_iso + sigma_vol
 
-    # First Piola–Kirchhoff
     pk1 = J[..., None, None] * np.einsum("...ij,...kj->...ik", sigma, Finv)
 
-    # Use the same virtual fields set as HGO (5 & 3)
     phi = calculate_VWS_virtual_work(pk1, X, Y, Z, volume_matrix, Force, L, H, mode="nh")
     return phi * 1e10
 
 
+# --- Virtual work assembly (xyz everywhere) --------------------------------------
+
+
 def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
-    """Compute internal (IVW) and external (EVW) virtual work contributions for five
-    predefined virtual fields, and return the residual vector phi for the given mode.
+    """Compute IVW/EVW terms for the predefined virtual fields.
+    Inputs X,Y,Z are the (x,y,z) coordinate grids.
     """
-    # Shift coordinates so that X1, X2 are centered (origin at mid-plane) and X3 is vertical
     X1 = X - L / 2
     X2 = Y - L / 2
     X3 = Z
 
-    # Virtual field derivatives (du_star) for five virtual displacement fields:
-    # du_star_1: z_cos in u3 only (vertical cosine-shaped field)
     du_star_1 = np.zeros_like(pk1)
     du_star_1[..., 2, 0] = U_star_z_cos_devX(X1, X2, X3, L, H)
     du_star_1[..., 2, 1] = U_star_z_cos_devY(X1, X2, X3, L, H)
     du_star_1[..., 2, 2] = U_star_z_cos_devZ(X1, X2, X3, L, H)
 
-    # du_star_2: z_pw in u3 only (vertical piecewise field)
     du_star_2 = np.zeros_like(pk1)
     du_star_2[..., 2, 0] = U_star_z_pw_devX(X1, X2, X3, L, H)
     du_star_2[..., 2, 1] = U_star_z_pw_devY(X1, X2, X3, L, H)
     du_star_2[..., 2, 2] = U_star_z_pw_devZ(X1, X2, X3, L, H)
 
-    # du_star_3: x_para in u1, y_para in u2 (in-plane parabolic field)
     du_star_3 = np.zeros_like(pk1)
     du_star_3[..., 0, 0] = U_star_x_para_devX(X1, X2, X3, L, H)
     du_star_3[..., 0, 1] = U_star_x_para_devY(X1, X2, X3, L, H)
@@ -642,7 +671,6 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
     du_star_3[..., 1, 1] = U_star_y_para_devY(X1, X2, X3, L, H)
     du_star_3[..., 1, 2] = U_star_y_para_devZ(X1, X2, X3, L, H)
 
-    # du_star_4: x_sin in u1, y_sin in u2 (in-plane sinusoidal field)
     du_star_4 = np.zeros_like(pk1)
     du_star_4[..., 0, 0] = U_star_x_sin_devX(X1, X2, X3, L, H)
     du_star_4[..., 0, 1] = U_star_x_sin_devY(X1, X2, X3, L, H)
@@ -651,97 +679,75 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
     du_star_4[..., 1, 1] = U_star_y_sin_devY(X1, X2, X3, L, H)
     du_star_4[..., 1, 2] = U_star_y_sin_devZ(X1, X2, X3, L, H)
 
-    # Internal virtual work (IVW) for each field: integrate pk1 : du_star over volume
-    # ivw_1 = np.sum(pk1 * du_star_1, axis=(-2, -1)) * volume_element
+    # IVW for fields we use
     ivw_2 = np.sum(pk1 * du_star_2, axis=(-2, -1)) * volume_element
     ivw_3 = np.sum(pk1 * du_star_3, axis=(-2, -1)) * volume_element
-    # ivw_4 = np.sum(pk1 * du_star_4, axis=(-2, -1)) * volume_element
-
-    # Total internal virtual work for each field (sum over all elements)
-    # total_IVW_1 = np.sum(ivw_1)
     total_IVW_2 = np.sum(ivw_2)
     total_IVW_3 = np.sum(ivw_3)
-    # total_IVW_4 = np.sum(ivw_4)
-
-    # External virtual work (EVW) for each field using applied force and geometry
-    # evw_1 = -Force * U_star_z_cos(0, 0, H, L, H)
 
     evw_2 = -Force * U_star_z_pw(0, 0, H, L, H)
-    # evw_3 = 0.0  # no external work for purely in-plane virtual field
-    # evw_4 = -Force * U_star_z_pw(0, 0, H, L, H)  # (same as field 2 shape at top)
 
-    # Assemble residual vector phi based on mode
     if mode == "linear":
-        # Linear mode: use virtual fields 2 and 3
         phi = np.array([total_IVW_2 - evw_2, total_IVW_3])
 
     elif mode == "hgo":
-        # du_star_5: z_pw_vol in u3 only (vertical piecewise volumetric field)
         du_star_5 = np.zeros_like(pk1)
         du_star_5[..., 2, 0] = U_star_z_pw_vol_devX(X1, X2, X3, L, H)
         du_star_5[..., 2, 1] = U_star_z_pw_vol_devY(X1, X2, X3, L, H)
         du_star_5[..., 2, 2] = U_star_z_pw_vol_devZ(X1, X2, X3, L, H)
-
         ivw_5 = np.sum(pk1 * du_star_5, axis=(-2, -1)) * volume_element
         total_IVW_5 = np.sum(ivw_5)
         evw_5 = -Force * U_star_z_pw_vol(0, 0, H, L, H)
-
-        # HGO mode: use virtual fields 5 and 3
         phi = np.array([total_IVW_5 - evw_5, total_IVW_3])
 
     elif mode == "nh":
-        # build field 5 (volumetric) like HGO
         du_star_5 = np.zeros_like(pk1)
         du_star_5[..., 2, 0] = U_star_z_pw_vol_devX(X1, X2, X3, L, H)
         du_star_5[..., 2, 1] = U_star_z_pw_vol_devY(X1, X2, X3, L, H)
         du_star_5[..., 2, 2] = U_star_z_pw_vol_devZ(X1, X2, X3, L, H)
-
         ivw_5 = np.sum(pk1 * du_star_5, axis=(-2, -1)) * volume_element
         total_IVW_5 = np.sum(ivw_5)
         evw_5 = -Force * U_star_z_pw_vol(0, 0, H, L, H)
-
-        # ORIGINAL LOGIC: [field 3, field 5 − EVW5], Need double-check
         phi = np.array([total_IVW_3, total_IVW_5 - evw_5])
-
-        # ORIGINAL  phi_res=np.sqrt(phi[0]**2 + phi[1]**2) & return phi_res
         phi = np.sqrt(phi[0] ** 2 + phi[1] ** 2)
 
     else:
         raise ValueError(f"Unsupported mode '{mode}', choose 'linear' or 'hgo'.")
 
-    # Apply scaling for numerical stability
     return phi
 
 
-def sensitivity_full(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, deviation):
-    """Perform sensitivity analysis for the linear material model using finite difference.
+# --- Sensitivity analysis (unchanged numerics; xyz everywhere) -------------------
 
-    Parameters:
-        tensor_displacement_list: ndarray of shape (Nx, Ny, Nz, 3, 3)
-        E1, E2, v12, v23, Gt: material parameters
-        X, Y, Z: coordinate grids
-        Force: scalar external load
-        volume_matrix: Per-voxel weighted volume map
-        L, H: sample dimensions
-        deviation: relative perturbation ratio (e.g., 0.05 for 5%)
 
-    Returns:
-        sens_matrix: 5x5 normalized sensitivity matrix
-    """
-    # Perturb each parameter by (1 + deviation)
+def sensitivity_full(
+    tensor_displacement_list,
+    E1,
+    E2,
+    v12,
+    v23,
+    Gt,
+    X,
+    Y,
+    Z,
+    Force,
+    volume_matrix,
+    L,
+    H,
+    deviation,
+):
     sens_matrix = np.zeros((5, 5))
+
     E1_1 = E1 * (1 + deviation)
     E2_1 = E2 * (1 + deviation)
     v12_1 = v12 * (1 + deviation)
     v23_1 = v23 * (1 + deviation)
     Gt_1 = Gt * (1 + deviation)
 
-    # Compute the baseline residual
     phi_base = calculate_VWS_linear(
         tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
     )
 
-    # Compute residuals for each perturbed parameter
     phi_E1_1 = calculate_VWS_linear(
         tensor_displacement_list, E1_1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
     )
@@ -758,14 +764,12 @@ def sensitivity_full(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Fo
         tensor_displacement_list, E1, E2, v12, v23, Gt_1, X, Y, Z, Force, volume_matrix, L, H, output=2
     )
 
-    # Fill diagonal entries (squared normalized differences)
     sens_matrix[0, 0] = ((phi_E1_1 - phi_base) / (E1 * deviation)) ** 2
     sens_matrix[1, 1] = ((phi_E2_1 - phi_base) / (E2 * deviation)) ** 2
     sens_matrix[2, 2] = ((phi_v12_1 - phi_base) / (v12 * deviation)) ** 2
     sens_matrix[3, 3] = ((phi_v23_1 - phi_base) / (v23 * deviation)) ** 2
     sens_matrix[4, 4] = ((phi_Gt_1 - phi_base) / (Gt_1)) ** 2
 
-    # Fill off-diagonal entries (cross sensitivity)
     sens_matrix[0, 1] = ((phi_E1_1 - phi_base) / (E1 * deviation)) * ((phi_E2_1 - phi_base) / (E2 * deviation))
     sens_matrix[0, 2] = ((phi_E1_1 - phi_base) / (E1 * deviation)) * ((phi_v12_1 - phi_base) / (v12 * deviation))
     sens_matrix[0, 3] = ((phi_E1_1 - phi_base) / (E1 * deviation)) * ((phi_v23_1 - phi_base) / (v23 * deviation))
@@ -787,17 +791,13 @@ def sensitivity_full(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Fo
     sens_matrix[4, 2] = sens_matrix[2, 4]
     sens_matrix[4, 3] = sens_matrix[3, 4]
 
-    # Normalize matrix by the minimum value (ensures relative scaling)
     sens_matrix = np.abs(sens_matrix)
     m = np.min(sens_matrix)
     eps = 1e-12
-
     if not np.isfinite(m) or m <= eps:
-        # degenerate case: skip normalization to avoid NaNs
         return sens_matrix
-    # Print for inspection
+
     print("Sensitivity Matrix (5x5):")
     for row in sens_matrix:
         print(" ".join(f"{value:10.4f}" for value in row))
-
     return sens_matrix / m
