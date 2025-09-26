@@ -5,7 +5,7 @@ and delegates computation to model-specific functions.
 
 import logging
 
-from fim.refactor.vws_models import calculate_VWS_hgo, calculate_VWS_linear, calculate_VWS_nh, sensitivity_full
+from fim.refactor.vws_models import calculate_VWS_hgo, calculate_VWS_linear, calculate_VWS_nh, sensitivity_full_linear
 
 
 class MaterialModel:
@@ -29,7 +29,7 @@ class MaterialModel:
     def get_parameter(self, key, default=None):
         return self.params.get(key, default)
 
-    def sensitivity_analysis(self, tensor_displacement_list, X, Y, Z, volume_matrix, L, H, deviation=0.05):
+    def sensitivity_analysis_linear(self, tensor_displacement_list, X, Y, Z, volume_matrix, L, H, deviation=0.05):
         if self.name != "linear":
             raise NotImplementedError("Sensitivity analysis is only available for the 'linear' model.")
 
@@ -40,7 +40,7 @@ class MaterialModel:
         Gt = self.get_parameter("Gt")
         Force = self.get_parameter("Force")
 
-        return sensitivity_full(
+        return sensitivity_full_linear(
             tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, deviation
         )
 

@@ -6,10 +6,10 @@ import os
 import time
 
 import numpy as np
-from material_model import MaterialModel
 from scipy.optimize import least_squares
 
-from fim.refactor.vws_models_bak import (
+from fim.refactor.material_model import MaterialModel
+from fim.refactor.vws_models import (
     central_differentiation,
     increase_matrix_size,
     map_elements_to_centraldiff,
@@ -180,7 +180,7 @@ if __name__ == "__main__":
 
         # Run sensitivity analysis
         deviation = 0.05
-        sens = linear_model.sensitivity_analysis(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
+        sens = linear_model.sensitivity_analysis_linear(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
 
     elif model_name == "hgo":
         # === HGO Model ===
