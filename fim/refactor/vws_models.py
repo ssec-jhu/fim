@@ -587,6 +587,26 @@ def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa,
     return phi * 1e10
 
 
+def calculate_VWS_nh(tensor_displacement_list, X, Y, Z, C10, D1, volume_matrix, Force, L, H):
+    I3 = np.eye(3)
+    F = tensor_displacement_list + I3
+    J = np.linalg.det(F)
+    Finv = np.linalg.inv(F)
+
+    b = np.einsum("...ik,...jk->...ij", F, F)
+    c = np.einsum("...ji,...jk->...ik", F, F)
+    I1 = np.trace(c, axis1=-2, axis2=-1)[..., None, None]
+
+    sigma_iso = (2 * C10 * J ** (-5 / 3))[..., None, None] * (b - (I3 * I1 / 3))
+    sigma_vol = ((1 / D1) * (J - 1 / J))[..., None, None] * I3
+    sigma = sigma_iso + sigma_vol
+
+    pk1 = J[..., None, None] * np.einsum("...ij,...kj->...ik", sigma, Finv)
+
+    phi = calculate_VWS_virtual_work(pk1, X, Y, Z, volume_matrix, Force, L, H, mode="nh")
+    return phi * 1e10
+
+
 def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
     """Compute internal (IVW) and external (EVW) virtual work contributions for five
     predefined virtual fields, and return the residual vector phi for the given mode.
@@ -665,14 +685,26 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
         # HGO mode: use virtual fields 5 and 3
         phi = np.array([total_IVW_5 - evw_5, total_IVW_3])
 
+    elif mode == "nh":
+        du_star_5 = np.zeros_like(pk1)
+        du_star_5[..., 2, 0] = U_star_z_pw_vol_devX(X1, X2, X3, L, H)
+        du_star_5[..., 2, 1] = U_star_z_pw_vol_devY(X1, X2, X3, L, H)
+        du_star_5[..., 2, 2] = U_star_z_pw_vol_devZ(X1, X2, X3, L, H)
+        ivw_5 = np.sum(pk1 * du_star_5, axis=(-2, -1)) * volume_element
+        total_IVW_5 = np.sum(ivw_5)
+        evw_5 = -Force * U_star_z_pw_vol(0, 0, H, L, H)
+        phi = np.array([total_IVW_3, total_IVW_5 - evw_5])
+        phi = np.sqrt(phi[0] ** 2 + phi[1] ** 2)
+
     else:
         raise ValueError(f"Unsupported mode '{mode}', choose 'linear' or 'hgo'.")
 
-    # Apply scaling for numerical stability
     return phi
 
 
-def sensitivity_full(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, deviation):
+def sensitivity_full_linear(
+    tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, deviation
+):
     """Perform sensitivity analysis for the linear material model using finite difference.
 
     Parameters:

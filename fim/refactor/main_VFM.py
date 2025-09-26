@@ -6,9 +6,15 @@ import os
 import time
 
 import numpy as np
-from material_model import MaterialModel
 from scipy.optimize import least_squares
-from vws_models import central_differentiation, increase_matrix_size, map_elements_to_centraldiff, read_input_file
+
+from fim.refactor.material_model import MaterialModel
+from fim.refactor.vws_models import (
+    central_differentiation,
+    increase_matrix_size,
+    map_elements_to_centraldiff,
+    read_input_file,
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -18,11 +24,12 @@ DATA_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "test_
 DEFAULT_PATHS = {
     "linear": os.path.join(DATA_ROOT, "80um"),
     "hgo": os.path.join(DATA_ROOT, "HGO"),
+    "nh": os.path.join(DATA_ROOT, "NH"),
 }
 
 # CLI
 parser = argparse.ArgumentParser(description="Run FIM Material Model Evaluation")
-parser.add_argument("--model", type=str, choices=["linear", "hgo"], help="Material model type")
+parser.add_argument("--model", type=str, choices=["linear", "hgo", "nh"], help="Material model type")
 parser.add_argument("--data_path", type=str, help="Path to input data folder")
 args = parser.parse_args()
 
@@ -62,6 +69,16 @@ def run_inverse_model(displacement_field, X, Y, Z, volume_matrix, initial_guess,
             return material_model.model_func(
                 displacement_field, X, Y, Z, C10, D1, k1, k2, kappa, volume_matrix, Force, L, H
             )
+
+    elif name == "nh":
+
+        def residual(x):
+            C10, D1 = x
+            L = material_model.get_parameter("L")
+            H = material_model.get_parameter("H")
+            Force = material_model.get_parameter("Force")
+            volume_matrix = material_model.get_parameter("volume_matrix")
+            return material_model.model_func(displacement_field, X, Y, Z, C10, D1, volume_matrix, Force, L, H)
 
     else:
         raise ValueError("Unknown material model type")
@@ -115,6 +132,19 @@ def load_hgo_fields(folder):
     return X, Y, Z, tensor_displacement_list, L, W, H, volume_matrix
 
 
+def load_nh_fields(folder):
+    """Loads NH-specific displacement, volume, and mesh dimensions."""
+    X, Y, Z, tensor_displacement_list, volume_matrix = load_common_fields(folder)
+
+    undeformed_nodes, connectivity = read_input_file(f"{folder}/335k_32um.inp")
+
+    L = abs(np.max(undeformed_nodes[:, 1]) - np.min(undeformed_nodes[:, 1]))
+    W = abs(np.max(undeformed_nodes[:, 2]) - np.min(undeformed_nodes[:, 2]))
+    H = abs(np.max(undeformed_nodes[:, 3]) - np.min(undeformed_nodes[:, 3]))
+
+    return X, Y, Z, tensor_displacement_list, L, W, H, volume_matrix
+
+
 if __name__ == "__main__":
     start_time = time.time()
 
@@ -150,7 +180,7 @@ if __name__ == "__main__":
 
         # Run sensitivity analysis
         deviation = 0.05
-        sens = linear_model.sensitivity_analysis(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
+        sens = linear_model.sensitivity_analysis_linear(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
 
     elif model_name == "hgo":
         # === HGO Model ===
@@ -177,5 +207,30 @@ if __name__ == "__main__":
         result_hgo = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, hgo_model)
         # logging.info(f"HGO model result: {result_hgo}")
         logging.info("HGO model result: C10 = %.2f, D1 = %.2e, kappa = %.3f", *result_hgo)
+
+    elif model_name == "nh":
+        # === NH Model ===
+        X, Y, Z, disp_tensor, L, W, H, volume_matrix = load_nh_fields(data_path)
+        nh_params = {
+            "C10": 267 * 0.95,
+            "D1": 8e-4 * 0.95,
+            # "k1": 2000,
+            # "k2": 5,
+            # "kappa": 0.05,
+            "L": L,
+            "W": W,
+            "H": H,
+            "volume_matrix": volume_matrix,
+            "Force": 1.05e-05,
+        }
+        nh_model = MaterialModel("nh", nh_params)
+
+        initial_guess = [nh_params["C10"], nh_params["D1"]]
+        bounds = ((100, 1e-6), (1000, 1e-3))
+
+        # Run optimization
+        result_nh = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, nh_model)
+        # logging.info(f"HGO model result: {result_hgo}")
+        logging.info("NH model result: C10 = %.2f, D1 = %.2e", *result_nh)
 
     logging.info(f"Total runtime: {time.time() - start_time}")
