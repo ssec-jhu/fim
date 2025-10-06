@@ -207,7 +207,12 @@ if __name__ == "__main__":
         result_hgo = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, hgo_model)
         logging.info("HGO model result: C10 = %.2f, D1 = %.2e, kappa = %.3f", *result_hgo)
 
-        # Run sensitivity analysis
+        # Update model parameters with optimized values for sensitivity analysis
+        hgo_model.params["C10"] = result_hgo[0]
+        hgo_model.params["D1"] = result_hgo[1]
+        hgo_model.params["kappa"] = result_hgo[2]
+
+        # Run sensitivity analysis with optimized parameters
         deviation = 0.05
         sens = hgo_model.sensitivity_analysis_hgo(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
 
@@ -235,7 +240,11 @@ if __name__ == "__main__":
         result_nh = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, nh_model)
         logging.info("NH model result: C10 = %.2f, D1 = %.2e", *result_nh)
 
-        # Run sensitivity analysis
+        # Update model parameters with optimized values for sensitivity analysis
+        nh_model.params["C10"] = result_nh[0]
+        nh_model.params["D1"] = result_nh[1]
+
+        # Run sensitivity analysis with optimized parameters
         deviation = 0.05
         sens = nh_model.sensitivity_analysis_nh(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
 
