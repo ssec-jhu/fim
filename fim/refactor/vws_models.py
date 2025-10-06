@@ -532,8 +532,8 @@ def calculate_VWS_linear(
     phi = calculate_VWS_virtual_work(pk1, X, Y, Z, volume_matrix, Force, L, H, mode="linear")
 
     if return_scalar:
-        # Return scalar L2 norm for sensitivity analysis
-        return np.sqrt(phi[0] ** 2 + phi[1] ** 2)
+        # Return scalar for sensitivity analysis (original behavior: first component only)
+        return np.sqrt(phi[0] ** 2)
     else:
         # Return vector scaled by 1e10 for least_squares optimization
         return phi * 1e10
