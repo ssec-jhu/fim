@@ -1036,6 +1036,58 @@ def senstivity_full(
 
     return sens_matrix
 
+def senstivity_full_updated(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa,volume_matrix,Force,deviation):
+    sens_matrix = np.zeros((5, 5))
+    C10_1 = C10 * (1 + deviation)
+    D1_1 = D1 * (1 + deviation)
+    k1_1 = k1 * (1 + deviation)
+    k2_1 = k2 * (1 + deviation)
+    kappa_1 = 0.33*deviation
+
+    phi_base = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa,volume_matrix,Force)
+  
+    phi_C10_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10_1,D1,k1,k2,kappa,volume_matrix,Force)
+    phi_D1_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1_1,k1,k2,kappa,volume_matrix,Force)
+    phi_k1_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1_1,k2,kappa,volume_matrix,Force)
+    phi_k2_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2_1,kappa,volume_matrix,Force)
+    phi_kappa_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa_1,volume_matrix,Force)
+    
+    sens_matrix[0, 0] = ((phi_C10_1 - phi_base) / (C10 * deviation))**2
+    sens_matrix[1, 1] = ((phi_D1_1 - phi_base) / (D1 * deviation))**2
+    sens_matrix[2, 2] = ((phi_k1_1 - phi_base) / (k1 * deviation))**2
+    sens_matrix[3, 3] = ((phi_k2_1 - phi_base) / (k2 * deviation))**2
+    sens_matrix[4, 4] = ((phi_kappa_1 - phi_base) / (kappa_1))**2
+    
+    sens_matrix[0, 1] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_D1_1 - phi_base) / (D1 * deviation))
+    sens_matrix[0, 2] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_k1_1 - phi_base) / (k1 * deviation))
+    sens_matrix[0, 3] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
+    sens_matrix[0, 4] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
+    sens_matrix[1, 0] = sens_matrix[0, 1]
+    sens_matrix[1, 2] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_k1_1 - phi_base) / (k1 * deviation))
+    sens_matrix[1, 3] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
+    sens_matrix[1, 4] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
+    sens_matrix[2, 0] = sens_matrix[0, 2]
+    sens_matrix[2, 1] = sens_matrix[1, 2]
+    sens_matrix[2, 3] = ((phi_k1_1 - phi_base) / (k1 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
+    sens_matrix[2, 4] = ((phi_k1_1 - phi_base) / (k1 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
+    sens_matrix[3, 0] = sens_matrix[0, 3]
+    sens_matrix[3, 1] = sens_matrix[1, 3]
+    sens_matrix[3, 2] = sens_matrix[2, 3]
+    sens_matrix[3, 4] = ((phi_k2_1 - phi_base) / (k2 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
+    sens_matrix[4, 0] = sens_matrix[0, 4]
+    sens_matrix[4, 1] = sens_matrix[1, 4]
+    sens_matrix[4, 2] = sens_matrix[2, 4]
+    sens_matrix[4, 3] = sens_matrix[3, 4]
+    
+    sens_matrix = np.abs(sens_matrix)
+    sens_matrix = sens_matrix / np.min(sens_matrix)
+    
+    # Print the formatted 5x5 matrix
+    print("Sensitivity Matrix (5x5):")
+    for row in sens_matrix:
+        print(" ".join(f"{value:10.4f}" for value in row))
+
+    return sens_matrix
 
 def calculate_phi(args):
     E1, tensor_displacement_list, matrix, E2, v12, v23, Gt, undeformed_centroids, cube_size, Force = args
@@ -1128,7 +1180,8 @@ def main():
 
     # exit()
 
-    file_path_undeformed = r"data_files\NH\brain_NH\335k_new.inp"
+    cur_dir = r"fim/test_data/"
+    file_path_undeformed = cur_dir + r"NH/335k_32um.inp"
 
     undeformed_nodes, connectivity = read_input_file(file_path_undeformed)
 
@@ -1137,20 +1190,20 @@ def main():
     W = abs(np.max(undeformed_nodes[:, 2]) - np.min(undeformed_nodes[:, 2]))
     H = abs(np.max(undeformed_nodes[:, 3]) - np.min(undeformed_nodes[:, 3]))
 
-    X = np.load(r"processed_npy_files_NH\335k_3.2e-5\X.npy")
-    Y = np.load(r"processed_npy_files_NH\335k_3.2e-5\Y.npy")
-    Z = np.load(r"processed_npy_files_NH\335k_3.2e-5\Z.npy")
-    Ux = np.load(r"processed_npy_files_NH\335k_3.2e-5\Ux.npy")
-    Uy = np.load(r"processed_npy_files_NH\335k_3.2e-5\Uy.npy")
-    Uz = np.load(r"processed_npy_files_NH\335k_3.2e-5\Uz.npy")
-    volume_matrix = np.load(r"processed_npy_files_NH\335k_3.2e-5\volume_matrix.npy")
+    X = np.load(cur_dir + r"NH/X.npy")
+    Y = np.load(cur_dir + r"NH/Y.npy")
+    Z = np.load(cur_dir + r"NH/Z.npy")
+    Ux = np.load(cur_dir + r"NH/Ux.npy")
+    Uy = np.load(cur_dir + r"NH/Uy.npy")
+    Uz = np.load(cur_dir + r"NH/Uz.npy")
+    volume_matrix = np.load(cur_dir + r"NH/volume_matrix.npy")
 
     # U_flat=np.abs(Uy.flatten())
     # plt.figure(figsize=(8, 5))
     # plt.hist(U_flat, bins=50, edgecolor='black')
     # plt.show()
     print(np.max(Uy))
-    exit()
+    # exit()5
 
     X_enlarged = increase_matrix_size(X)
     Y_enlarged = increase_matrix_size(Y)
@@ -1172,7 +1225,7 @@ def main():
     D1 = 8e-4 * 0.95
 
     senstivity(tensor_displacement_list, X, Y, Z, C10, D1, volume_matrix, Force, 0.05)
-    exit()
+    # exit()
 
     # print(calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa,volume_matrix,Force))
     # exit()

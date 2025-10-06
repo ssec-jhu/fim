@@ -150,14 +150,14 @@ def test_calculate_VWS_linear_output_modes_and_values():
     E1, E2, v12, v23, Gt = 1e5, 5e4, 0.25, 0.3, 2e4
     Force = 1.0
 
-    phi_vec = vm.calculate_VWS_linear(G, E1, E2, v12, v23, Gt, X, Y, Z, Force, vol, L, H, output=1)
+    phi_vec = vm.calculate_VWS_linear(G, E1, E2, v12, v23, Gt, X, Y, Z, Force, vol, L, H, return_scalar=False)
     assert np.isfinite(phi_vec).all() and phi_vec.shape == (2,)
 
-    phi_mag = vm.calculate_VWS_linear(G, E1, E2, v12, v23, Gt, X, Y, Z, Force, vol, L, H, output=2)
+    phi_mag = vm.calculate_VWS_linear(G, E1, E2, v12, v23, Gt, X, Y, Z, Force, vol, L, H, return_scalar=True)
     assert np.isscalar(phi_mag) or np.array(phi_mag).shape == ()
 
     G0 = np.zeros_like(G)
-    phi_vec0 = vm.calculate_VWS_linear(G0, E1, E2, v12, v23, Gt, X, Y, Z, Force, vol, L, H, output=1)
+    phi_vec0 = vm.calculate_VWS_linear(G0, E1, E2, v12, v23, Gt, X, Y, Z, Force, vol, L, H, return_scalar=False)
     assert np.isfinite(phi_vec0).all()
 
 
@@ -178,11 +178,20 @@ def test_calculate_VWS_hgo_and_nh_and_virtual_work_modes(monkeypatch):
     monkeypatch.setattr(vm, "U_star_z_pw_vol", safe_vol)
 
     C10, D1, k1, k2, kappa = 1e3, 1e-2, 100.0, 5.0, 1 / 3
-    phi_hgo = vm.calculate_VWS_hgo(G, X, Y, Z, C10, D1, k1, k2, kappa, vol, Force, L, H)
-    assert np.isfinite(phi_hgo).all() and phi_hgo.shape == (2,)
 
-    phi_nh = vm.calculate_VWS_nh(G, X, Y, Z, C10, D1, vol, Force, L, H)
-    assert np.isscalar(phi_nh) or np.array(phi_nh).shape == ()
+    # Test HGO model with both return modes
+    phi_hgo_vec = vm.calculate_VWS_hgo(G, X, Y, Z, C10, D1, k1, k2, kappa, vol, Force, L, H, return_scalar=False)
+    assert np.isfinite(phi_hgo_vec).all() and phi_hgo_vec.shape == (2,)
+
+    phi_hgo_scalar = vm.calculate_VWS_hgo(G, X, Y, Z, C10, D1, k1, k2, kappa, vol, Force, L, H, return_scalar=True)
+    assert np.isscalar(phi_hgo_scalar) or np.array(phi_hgo_scalar).shape == ()
+
+    # Test NH model with both return modes
+    phi_nh_vec = vm.calculate_VWS_nh(G, X, Y, Z, C10, D1, vol, Force, L, H, return_scalar=False)
+    assert np.isfinite(phi_nh_vec).all() and phi_nh_vec.shape == (2,)
+
+    phi_nh_scalar = vm.calculate_VWS_nh(G, X, Y, Z, C10, D1, vol, Force, L, H, return_scalar=True)
+    assert np.isscalar(phi_nh_scalar) or np.array(phi_nh_scalar).shape == ()
 
     with pytest.raises(ValueError):
         vm.calculate_VWS_virtual_work(np.zeros((*X.shape, 3, 3)), X, Y, Z, vol, Force, L, H, mode="nope")
@@ -196,3 +205,55 @@ def test_sensitivity_full_linear_runs_and_normalizes():
     # With richer G, min should be >0, so normalization is finite
     assert np.isfinite(sens).all()
     assert np.isclose(sens.min(), 1.0)
+    # Check symmetry
+    assert np.allclose(sens, sens.T)
+
+
+def test_sensitivity_full_hgo_runs_and_normalizes(monkeypatch):
+    X, Y, Z, L, H, vol, G = make_pk_inputs(3, 3, 3)
+    Force = 0.5
+
+    # Patch scalar call for evw_5
+    orig = vm.U_star_z_pw_vol
+
+    def safe_vol(x, y, z, L_, H_):
+        if np.isscalar(x):
+            xs, ys, zs = np.array([x]), np.array([y]), np.array([z])
+            val = orig(xs, ys, zs, L_, H_)
+            return float(np.asarray(val)[0])
+        return orig(x, y, z, L_, H_)
+
+    monkeypatch.setattr(vm, "U_star_z_pw_vol", safe_vol)
+
+    C10, D1, k1, k2, kappa = 1e3, 1e-2, 100.0, 5.0, 0.1
+    sens = vm.sensitivity_full_hgo(G, X, Y, Z, C10, D1, k1, k2, kappa, vol, Force, L, H, deviation=0.05)
+    assert sens.shape == (5, 5)
+    assert np.isfinite(sens).all()
+    assert np.isclose(sens.min(), 1.0)
+    # Check symmetry
+    assert np.allclose(sens, sens.T)
+
+
+def test_sensitivity_nh_runs_and_normalizes(monkeypatch):
+    X, Y, Z, L, H, vol, G = make_pk_inputs(3, 3, 3)
+    Force = 0.5
+
+    # Patch scalar call for evw_5
+    orig = vm.U_star_z_pw_vol
+
+    def safe_vol(x, y, z, L_, H_):
+        if np.isscalar(x):
+            xs, ys, zs = np.array([x]), np.array([y]), np.array([z])
+            val = orig(xs, ys, zs, L_, H_)
+            return float(np.asarray(val)[0])
+        return orig(x, y, z, L_, H_)
+
+    monkeypatch.setattr(vm, "U_star_z_pw_vol", safe_vol)
+
+    C10, D1 = 1e3, 1e-2
+    sens = vm.sensitivity_nh(G, X, Y, Z, C10, D1, vol, Force, L, H, deviation=0.05)
+    assert sens.shape == (2, 2)
+    assert np.isfinite(sens).all()
+    assert np.isclose(sens.min(), 1.0)
+    # Check symmetry
+    assert np.allclose(sens, sens.T)
