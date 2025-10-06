@@ -205,8 +205,11 @@ if __name__ == "__main__":
 
         # Run optimization
         result_hgo = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, hgo_model)
-        # logging.info(f"HGO model result: {result_hgo}")
         logging.info("HGO model result: C10 = %.2f, D1 = %.2e, kappa = %.3f", *result_hgo)
+
+        # Run sensitivity analysis
+        deviation = 0.05
+        sens = hgo_model.sensitivity_analysis_hgo(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
 
     elif model_name == "nh":
         # === NH Model ===
@@ -230,7 +233,10 @@ if __name__ == "__main__":
 
         # Run optimization
         result_nh = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, nh_model)
-        # logging.info(f"HGO model result: {result_hgo}")
         logging.info("NH model result: C10 = %.2f, D1 = %.2e", *result_nh)
+
+        # Run sensitivity analysis
+        deviation = 0.05
+        sens = nh_model.sensitivity_analysis_nh(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
 
     logging.info(f"Total runtime: {time.time() - start_time}")

@@ -453,7 +453,9 @@ def map_elements_to_centraldiff(dUx_dx, dUy_dx, dUz_dx, dUx_dy, dUy_dy, dUz_dy, 
     return tensor_array
 
 
-def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=1):
+def calculate_VWS_linear(
+    tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, return_scalar=False
+):
     """Calculate the virtual work residuals for a linear orthotropic material model.
 
     Args:
@@ -463,10 +465,11 @@ def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z
         Force: applied load
         volume_matrix: Per-voxel weighted volume map
         L, H: sample dimensions
-        mode: 'phi' or 'residual'
+        return_scalar: If False (default), return vector residual scaled by 1e10 for optimization.
+                       If True, return scalar residual (L2 norm) for sensitivity analysis.
 
     Returns:
-        Virtual work difference phi or residual magnitude.
+        phi * 1e10 (vector) if return_scalar=False, sqrt(phi[0]^2) if return_scalar=True
     """
     E3 = E2
     v21 = (E2 / E1) * v12
@@ -528,10 +531,17 @@ def calculate_VWS_linear(tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z
     # Compute the virtual work residuals using predefined virtual displacement fields (Linear mode)
     phi = calculate_VWS_virtual_work(pk1, X, Y, Z, volume_matrix, Force, L, H, mode="linear")
 
-    return phi * 1e10 if output == 1 else np.sqrt(phi[0] ** 2)
+    if return_scalar:
+        # Return scalar L2 norm for sensitivity analysis
+        return np.sqrt(phi[0] ** 2 + phi[1] ** 2)
+    else:
+        # Return vector scaled by 1e10 for least_squares optimization
+        return phi * 1e10
 
 
-def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa, volume_matrix, Force, L, H):
+def calculate_VWS_hgo(
+    tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa, volume_matrix, Force, L, H, return_scalar=False
+):
     """Computes the internal and external virtual work terms for HGO hyperelastic material model.
 
     Args:
@@ -541,9 +551,11 @@ def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa,
         volume_matrix: per-voxel volume weights
         Force: scalar load
         L, H: sample size in X/Y and Z
+        return_scalar: If False (default), return vector residual scaled by 1e10 for optimization.
+                       If True, return scalar residual (L2 norm) for sensitivity analysis.
 
     Returns:
-        phi: array of residuals [IVW5 - EVW5, IVW3] scaled by 1e10
+        phi * 1e10 (vector) if return_scalar=False, sqrt(phi[0]^2 + phi[1]^2) if return_scalar=True
     """
     a04 = np.array([1, 0, 0]).T
     I3 = np.eye(3)
@@ -584,10 +596,32 @@ def calculate_VWS_hgo(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa,
 
     # Compute the virtual work residuals using predefined virtual displacement fields (HGO mode)
     phi = calculate_VWS_virtual_work(pk1, X, Y, Z, volume_matrix, Force, L, H, mode="hgo")
-    return phi * 1e10
+
+    if return_scalar:
+        # Return scalar L2 norm for sensitivity analysis
+        return np.sqrt(phi[0] ** 2 + phi[1] ** 2)
+    else:
+        # Return vector scaled by 1e10 for least_squares optimization
+        return phi * 1e10
 
 
-def calculate_VWS_nh(tensor_displacement_list, X, Y, Z, C10, D1, volume_matrix, Force, L, H):
+def calculate_VWS_nh(tensor_displacement_list, X, Y, Z, C10, D1, volume_matrix, Force, L, H, return_scalar=False):
+    """Computes the internal and external virtual work terms for Neo-Hookean material model.
+
+    Args:
+        tensor_displacement_list: ndarray of deformation gradients (Nx, Ny, Nz, 3, 3)
+        X, Y, Z: 3D mesh coordinates
+        C10: Neo-Hookean shear modulus parameter
+        D1: Neo-Hookean bulk modulus parameter
+        volume_matrix: per-voxel volume weights
+        Force: scalar load
+        L, H: sample size in X/Y and Z
+        return_scalar: If False (default), return vector residual scaled by 1e10 for optimization.
+                       If True, return scalar residual (L2 norm) for sensitivity analysis.
+
+    Returns:
+        phi * 1e10 (vector) if return_scalar=False, sqrt(phi[0]^2 + phi[1]^2) if return_scalar=True
+    """
     I3 = np.eye(3)
     F = tensor_displacement_list + I3
     J = np.linalg.det(F)
@@ -598,13 +632,19 @@ def calculate_VWS_nh(tensor_displacement_list, X, Y, Z, C10, D1, volume_matrix, 
     I1 = np.trace(c, axis1=-2, axis2=-1)[..., None, None]
 
     sigma_iso = (2 * C10 * J ** (-5 / 3))[..., None, None] * (b - (I3 * I1 / 3))
-    sigma_vol = ((1 / D1) * (J - 1 / J))[..., None, None] * I3
+    sigma_vol = (2 / D1 * (J - 1))[..., None, None] * I3
     sigma = sigma_iso + sigma_vol
 
     pk1 = J[..., None, None] * np.einsum("...ij,...kj->...ik", sigma, Finv)
 
     phi = calculate_VWS_virtual_work(pk1, X, Y, Z, volume_matrix, Force, L, H, mode="nh")
-    return phi * 1e10
+
+    if return_scalar:
+        # Return scalar L2 norm for sensitivity analysis
+        return np.sqrt(phi[0] ** 2 + phi[1] ** 2)
+    else:
+        # Return vector scaled by 1e10 for least_squares optimization
+        return phi * 1e10
 
 
 def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
@@ -693,11 +733,11 @@ def calculate_VWS_virtual_work(pk1, X, Y, Z, volume_element, Force, L, H, mode):
         ivw_5 = np.sum(pk1 * du_star_5, axis=(-2, -1)) * volume_element
         total_IVW_5 = np.sum(ivw_5)
         evw_5 = -Force * U_star_z_pw_vol(0, 0, H, L, H)
+        # NH mode: use virtual fields 3 and 5 (return vector for least_squares)
         phi = np.array([total_IVW_3, total_IVW_5 - evw_5])
-        phi = np.sqrt(phi[0] ** 2 + phi[1] ** 2)
 
     else:
-        raise ValueError(f"Unsupported mode '{mode}', choose 'linear' or 'hgo'.")
+        raise ValueError(f"Unsupported mode '{mode}', choose 'linear', 'hgo', or 'nh'.")
 
     return phi
 
@@ -729,24 +769,24 @@ def sensitivity_full_linear(
 
     # Compute the baseline residual
     phi_base = calculate_VWS_linear(
-        tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
+        tensor_displacement_list, E1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, return_scalar=True
     )
 
     # Compute residuals for each perturbed parameter
     phi_E1_1 = calculate_VWS_linear(
-        tensor_displacement_list, E1_1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
+        tensor_displacement_list, E1_1, E2, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, return_scalar=True
     )
     phi_E2_1 = calculate_VWS_linear(
-        tensor_displacement_list, E1, E2_1, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
+        tensor_displacement_list, E1, E2_1, v12, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, return_scalar=True
     )
     phi_v12_1 = calculate_VWS_linear(
-        tensor_displacement_list, E1, E2, v12_1, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
+        tensor_displacement_list, E1, E2, v12_1, v23, Gt, X, Y, Z, Force, volume_matrix, L, H, return_scalar=True
     )
     phi_v23_1 = calculate_VWS_linear(
-        tensor_displacement_list, E1, E2, v12, v23_1, Gt, X, Y, Z, Force, volume_matrix, L, H, output=2
+        tensor_displacement_list, E1, E2, v12, v23_1, Gt, X, Y, Z, Force, volume_matrix, L, H, return_scalar=True
     )
     phi_Gt_1 = calculate_VWS_linear(
-        tensor_displacement_list, E1, E2, v12, v23, Gt_1, X, Y, Z, Force, volume_matrix, L, H, output=2
+        tensor_displacement_list, E1, E2, v12, v23, Gt_1, X, Y, Z, Force, volume_matrix, L, H, return_scalar=True
     )
 
     # Fill diagonal entries (squared normalized differences)
@@ -773,6 +813,147 @@ def sensitivity_full_linear(
     sens_matrix[3, 1] = sens_matrix[1, 3]
     sens_matrix[3, 2] = sens_matrix[2, 3]
     sens_matrix[3, 4] = ((phi_v23_1 - phi_base) / (v23 * deviation)) * ((phi_Gt_1 - phi_base) / (Gt * deviation))
+    sens_matrix[4, 0] = sens_matrix[0, 4]
+    sens_matrix[4, 1] = sens_matrix[1, 4]
+    sens_matrix[4, 2] = sens_matrix[2, 4]
+    sens_matrix[4, 3] = sens_matrix[3, 4]
+
+    # Normalize matrix by the minimum value (ensures relative scaling)
+    sens_matrix = np.abs(sens_matrix)
+    sens_matrix = sens_matrix / np.min(sens_matrix)
+
+    # Print for inspection
+    print("Sensitivity Matrix (5x5):")
+    for row in sens_matrix:
+        print(" ".join(f"{value:10.4f}" for value in row))
+
+    return sens_matrix
+
+
+def sensitivity_nh(tensor_displacement_list, X, Y, Z, C10, D1, volume_matrix, Force, L, H, deviation):
+    """Perform sensitivity analysis for the Neo-Hookean material model using finite difference.
+
+    Parameters:
+        tensor_displacement_list: ndarray of shape (Nx, Ny, Nz, 3, 3)
+        X, Y, Z: coordinate grids
+        C10, D1: Neo-Hookean material parameters
+        volume_matrix: Per-voxel weighted volume map
+        Force: scalar external load
+        L, H: sample dimensions
+        deviation: relative perturbation ratio (e.g., 0.05 for 5%)
+
+    Returns:
+        sens_matrix: 2x2 normalized sensitivity matrix
+    """
+    # Perturb each parameter by (1 - deviation)
+    sens_matrix = np.zeros((2, 2))
+    C10_1 = C10 * (1 - deviation)
+    D1_1 = D1 * (1 - deviation)
+
+    # Compute the baseline residual
+    phi_base = calculate_VWS_nh(
+        tensor_displacement_list, X, Y, Z, C10, D1, volume_matrix, Force, L, H, return_scalar=True
+    )
+
+    # Compute residuals for each perturbed parameter
+    phi_C10_1 = calculate_VWS_nh(
+        tensor_displacement_list, X, Y, Z, C10_1, D1, volume_matrix, Force, L, H, return_scalar=True
+    )
+    phi_D1_1 = calculate_VWS_nh(
+        tensor_displacement_list, X, Y, Z, C10, D1_1, volume_matrix, Force, L, H, return_scalar=True
+    )
+
+    # Fill diagonal entries (squared normalized differences)
+    sens_matrix[0, 0] = ((phi_C10_1 - phi_base) / (C10 * deviation)) ** 2
+    sens_matrix[1, 1] = ((phi_D1_1 - phi_base) / (D1 * deviation)) ** 2
+
+    # Fill off-diagonal entries (cross sensitivity)
+    sens_matrix[0, 1] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_D1_1 - phi_base) / (D1 * deviation))
+    sens_matrix[1, 0] = sens_matrix[0, 1]
+
+    # Normalize matrix by the minimum value (ensures relative scaling)
+    sens_matrix = np.abs(sens_matrix)
+    sens_matrix = sens_matrix / np.min(sens_matrix)
+
+    # Print for inspection
+    print("Sensitivity Matrix (2x2):")
+    for row in sens_matrix:
+        print(" ".join(f"{value:10.4f}" for value in row))
+
+    return sens_matrix
+
+
+def sensitivity_full_hgo(
+    tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa, volume_matrix, Force, L, H, deviation
+):
+    """Perform sensitivity analysis for the HGO material model using finite difference.
+
+    Parameters:
+        tensor_displacement_list: ndarray of shape (Nx, Ny, Nz, 3, 3)
+        X, Y, Z: coordinate grids
+        C10, D1, k1, k2, kappa: HGO material parameters
+        volume_matrix: Per-voxel weighted volume map
+        Force: scalar external load
+        L, H: sample dimensions
+        deviation: relative perturbation ratio (e.g., 0.05 for 5%)
+
+    Returns:
+        sens_matrix: 5x5 normalized sensitivity matrix
+    """
+    # Perturb each parameter by (1 + deviation), except kappa which uses absolute deviation
+    sens_matrix = np.zeros((5, 5))
+    C10_1 = C10 * (1 + deviation)
+    D1_1 = D1 * (1 + deviation)
+    k1_1 = k1 * (1 + deviation)
+    k2_1 = k2 * (1 + deviation)
+    kappa_1 = 0.33 * deviation  # Absolute deviation for kappa
+
+    # Compute the baseline residual
+    phi_base = calculate_VWS_hgo(
+        tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa, volume_matrix, Force, L, H, return_scalar=True
+    )
+
+    # Compute residuals for each perturbed parameter
+    phi_C10_1 = calculate_VWS_hgo(
+        tensor_displacement_list, X, Y, Z, C10_1, D1, k1, k2, kappa, volume_matrix, Force, L, H, return_scalar=True
+    )
+    phi_D1_1 = calculate_VWS_hgo(
+        tensor_displacement_list, X, Y, Z, C10, D1_1, k1, k2, kappa, volume_matrix, Force, L, H, return_scalar=True
+    )
+    phi_k1_1 = calculate_VWS_hgo(
+        tensor_displacement_list, X, Y, Z, C10, D1, k1_1, k2, kappa, volume_matrix, Force, L, H, return_scalar=True
+    )
+    phi_k2_1 = calculate_VWS_hgo(
+        tensor_displacement_list, X, Y, Z, C10, D1, k1, k2_1, kappa, volume_matrix, Force, L, H, return_scalar=True
+    )
+    phi_kappa_1 = calculate_VWS_hgo(
+        tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa_1, volume_matrix, Force, L, H, return_scalar=True
+    )
+
+    # Fill diagonal entries (squared normalized differences)
+    sens_matrix[0, 0] = ((phi_C10_1 - phi_base) / (C10 * deviation)) ** 2
+    sens_matrix[1, 1] = ((phi_D1_1 - phi_base) / (D1 * deviation)) ** 2
+    sens_matrix[2, 2] = ((phi_k1_1 - phi_base) / (k1 * deviation)) ** 2
+    sens_matrix[3, 3] = ((phi_k2_1 - phi_base) / (k2 * deviation)) ** 2
+    sens_matrix[4, 4] = ((phi_kappa_1 - phi_base) / kappa_1) ** 2
+
+    # Fill off-diagonal entries (cross sensitivity)
+    sens_matrix[0, 1] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_D1_1 - phi_base) / (D1 * deviation))
+    sens_matrix[0, 2] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_k1_1 - phi_base) / (k1 * deviation))
+    sens_matrix[0, 3] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
+    sens_matrix[0, 4] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_kappa_1 - phi_base) / kappa_1)
+    sens_matrix[1, 0] = sens_matrix[0, 1]
+    sens_matrix[1, 2] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_k1_1 - phi_base) / (k1 * deviation))
+    sens_matrix[1, 3] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
+    sens_matrix[1, 4] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_kappa_1 - phi_base) / kappa_1)
+    sens_matrix[2, 0] = sens_matrix[0, 2]
+    sens_matrix[2, 1] = sens_matrix[1, 2]
+    sens_matrix[2, 3] = ((phi_k1_1 - phi_base) / (k1 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
+    sens_matrix[2, 4] = ((phi_k1_1 - phi_base) / (k1 * deviation)) * ((phi_kappa_1 - phi_base) / kappa_1)
+    sens_matrix[3, 0] = sens_matrix[0, 3]
+    sens_matrix[3, 1] = sens_matrix[1, 3]
+    sens_matrix[3, 2] = sens_matrix[2, 3]
+    sens_matrix[3, 4] = ((phi_k2_1 - phi_base) / (k2 * deviation)) * ((phi_kappa_1 - phi_base) / kappa_1)
     sens_matrix[4, 0] = sens_matrix[0, 4]
     sens_matrix[4, 1] = sens_matrix[1, 4]
     sens_matrix[4, 2] = sens_matrix[2, 4]
