@@ -175,7 +175,13 @@ if __name__ == "__main__":
 
         # Print initial values and bounds
         logging.info("Linear model initial values: E1 = %.2f, E2 = %.2f", *initial_guess)
-        logging.info("Linear model bounds: E1 = [%.2f, %.2f], E2 = [%.2f, %.2f]", bounds[0][0], bounds[1][0], bounds[0][1], bounds[1][1])
+        logging.info(
+            "Linear model bounds: E1 = [%.2f, %.2f], E2 = [%.2f, %.2f]",
+            bounds[0][0],
+            bounds[1][0],
+            bounds[0][1],
+            bounds[1][1],
+        )
 
         # Run optimization
         result = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, linear_model)
@@ -207,10 +213,23 @@ if __name__ == "__main__":
         bounds = ((0, 1e-5, 0), (1000, 1e-3, 0.33))
 
         # Print initial values and bounds
-        logging.info("HGO model initial values: C10 = %.2f, D1 = %.2e, k1 = %.2f, k2 = %.2f, kappa = %.3f",
-                     hgo_params["C10"], hgo_params["D1"], hgo_params["k1"], hgo_params["k2"], hgo_params["kappa"])
-        logging.info("HGO model bounds: C10 = [%.2f, %.2f], D1 = [%.2e, %.2e], kappa = [%.3f, %.3f]",
-                     bounds[0][0], bounds[1][0], bounds[0][1], bounds[1][1], bounds[0][2], bounds[1][2])
+        logging.info(
+            "HGO model initial values: C10 = %.2f, D1 = %.2e, k1 = %.2f, k2 = %.2f, kappa = %.3f",
+            hgo_params["C10"],
+            hgo_params["D1"],
+            hgo_params["k1"],
+            hgo_params["k2"],
+            hgo_params["kappa"],
+        )
+        logging.info(
+            "HGO model bounds: C10 = [%.2f, %.2f], D1 = [%.2e, %.2e], kappa = [%.3f, %.3f]",
+            bounds[0][0],
+            bounds[1][0],
+            bounds[0][1],
+            bounds[1][1],
+            bounds[0][2],
+            bounds[1][2],
+        )
         logging.info("HGO model fixed: k1 = %.2f, k2 = %.2f", hgo_params["k1"], hgo_params["k2"])
 
         # Run optimization
@@ -248,8 +267,13 @@ if __name__ == "__main__":
 
         # Print initial values and bounds
         logging.info("NH model initial values: C10 = %.2f, D1 = %.2e", *initial_guess)
-        logging.info("NH model bounds: C10 = [%.2f, %.2f], D1 = [%.2e, %.2e]",
-                     bounds[0][0], bounds[1][0], bounds[0][1], bounds[1][1])
+        logging.info(
+            "NH model bounds: C10 = [%.2f, %.2f], D1 = [%.2e, %.2e]",
+            bounds[0][0],
+            bounds[1][0],
+            bounds[0][1],
+            bounds[1][1],
+        )
 
         # Run optimization
         result_nh = run_inverse_model(disp_tensor, X, Y, Z, volume_matrix, initial_guess, bounds, nh_model)
