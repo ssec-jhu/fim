@@ -911,8 +911,8 @@ def calculate_VWS(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa, vol
     phi_res = np.sqrt(phi[0] ** 2 + phi[1] ** 2)
     print(C10, D1, kappa, phi_res)
 
-    return phi * 1e10
-    # return phi_res
+    # return phi * 1e10
+    return phi_res
 
 
 def residual_3(x, tensor_displacement_list, X, Y, Z, k1, k2, volume_matrix, Force):
@@ -923,52 +923,52 @@ def residual_3(x, tensor_displacement_list, X, Y, Z, k1, k2, volume_matrix, Forc
     return calculate_VWS(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa, volume_matrix, Force)
 
 
-def senstivity_full(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa, volume_matrix, Force, deviation):
+def senstivity_full(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa,volume_matrix,Force,deviation):
     sens_matrix = np.zeros((5, 5))
     C10_1 = C10 * (1 + deviation)
     D1_1 = D1 * (1 + deviation)
     k1_1 = k1 * (1 + deviation)
     k2_1 = k2 * (1 + deviation)
-    kappa_1 = kappa * (1 + deviation)
+    kappa_1 = 0.33*deviation
 
-    phi_base = calculate_VWS(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa, volume_matrix, Force)
-
-    phi_C10_1 = calculate_VWS(tensor_displacement_list, X, Y, Z, C10_1, D1, k1, k2, kappa, volume_matrix, Force)
-    phi_D1_1 = calculate_VWS(tensor_displacement_list, X, Y, Z, C10, D1_1, k1, k2, kappa, volume_matrix, Force)
-    phi_k1_1 = calculate_VWS(tensor_displacement_list, X, Y, Z, C10, D1, k1_1, k2, kappa, volume_matrix, Force)
-    phi_k2_1 = calculate_VWS(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2_1, kappa, volume_matrix, Force)
-    phi_kappa_1 = calculate_VWS(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa_1, volume_matrix, Force)
-
-    sens_matrix[0, 0] = ((phi_C10_1 - phi_base) / (C10 * deviation)) ** 2
-    sens_matrix[1, 1] = ((phi_D1_1 - phi_base) / (D1 * deviation)) ** 2
-    sens_matrix[2, 2] = ((phi_k1_1 - phi_base) / (k1 * deviation)) ** 2
-    sens_matrix[3, 3] = ((phi_k2_1 - phi_base) / (k2 * deviation)) ** 2
-    sens_matrix[4, 4] = ((phi_kappa_1 - phi_base) / (kappa * deviation)) ** 2
-
+    phi_base = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa,volume_matrix,Force)
+  
+    phi_C10_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10_1,D1,k1,k2,kappa,volume_matrix,Force)
+    phi_D1_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1_1,k1,k2,kappa,volume_matrix,Force)
+    phi_k1_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1_1,k2,kappa,volume_matrix,Force)
+    phi_k2_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2_1,kappa,volume_matrix,Force)
+    phi_kappa_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa_1,volume_matrix,Force)
+    
+    sens_matrix[0, 0] = ((phi_C10_1 - phi_base) / (C10 * deviation))**2
+    sens_matrix[1, 1] = ((phi_D1_1 - phi_base) / (D1 * deviation))**2
+    sens_matrix[2, 2] = ((phi_k1_1 - phi_base) / (k1 * deviation))**2
+    sens_matrix[3, 3] = ((phi_k2_1 - phi_base) / (k2 * deviation))**2
+    sens_matrix[4, 4] = ((phi_kappa_1 - phi_base) / (kappa_1))**2
+    
     sens_matrix[0, 1] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_D1_1 - phi_base) / (D1 * deviation))
     sens_matrix[0, 2] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_k1_1 - phi_base) / (k1 * deviation))
     sens_matrix[0, 3] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
-    sens_matrix[0, 4] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa * deviation))
+    sens_matrix[0, 4] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
     sens_matrix[1, 0] = sens_matrix[0, 1]
     sens_matrix[1, 2] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_k1_1 - phi_base) / (k1 * deviation))
     sens_matrix[1, 3] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
-    sens_matrix[1, 4] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa * deviation))
+    sens_matrix[1, 4] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
     sens_matrix[2, 0] = sens_matrix[0, 2]
     sens_matrix[2, 1] = sens_matrix[1, 2]
     sens_matrix[2, 3] = ((phi_k1_1 - phi_base) / (k1 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
-    sens_matrix[2, 4] = ((phi_k1_1 - phi_base) / (k1 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa * deviation))
+    sens_matrix[2, 4] = ((phi_k1_1 - phi_base) / (k1 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
     sens_matrix[3, 0] = sens_matrix[0, 3]
     sens_matrix[3, 1] = sens_matrix[1, 3]
     sens_matrix[3, 2] = sens_matrix[2, 3]
-    sens_matrix[3, 4] = ((phi_k2_1 - phi_base) / (k2 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa * deviation))
+    sens_matrix[3, 4] = ((phi_k2_1 - phi_base) / (k2 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
     sens_matrix[4, 0] = sens_matrix[0, 4]
     sens_matrix[4, 1] = sens_matrix[1, 4]
     sens_matrix[4, 2] = sens_matrix[2, 4]
     sens_matrix[4, 3] = sens_matrix[3, 4]
-
+    
     sens_matrix = np.abs(sens_matrix)
-    # sens_matrix = sens_matrix / np.min(sens_matrix)
-
+    sens_matrix = sens_matrix / np.min(sens_matrix)
+    
     # Print the formatted 5x5 matrix
     print("Sensitivity Matrix (5x5):")
     for row in sens_matrix:
@@ -976,9 +976,62 @@ def senstivity_full(tensor_displacement_list, X, Y, Z, C10, D1, k1, k2, kappa, v
 
     return sens_matrix
 
+def senstivity_full_updated(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa,volume_matrix,Force,deviation):
+    sens_matrix = np.zeros((5, 5))
+    C10_1 = C10 * (1 + deviation)
+    D1_1 = D1 * (1 + deviation)
+    k1_1 = k1 * (1 + deviation)
+    k2_1 = k2 * (1 + deviation)
+    kappa_1 = 0.33*deviation
+
+    phi_base = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa,volume_matrix,Force)
+  
+    phi_C10_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10_1,D1,k1,k2,kappa,volume_matrix,Force)
+    phi_D1_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1_1,k1,k2,kappa,volume_matrix,Force)
+    phi_k1_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1_1,k2,kappa,volume_matrix,Force)
+    phi_k2_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2_1,kappa,volume_matrix,Force)
+    phi_kappa_1 = calculate_VWS(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa_1,volume_matrix,Force)
+    
+    sens_matrix[0, 0] = ((phi_C10_1 - phi_base) / (C10 * deviation))**2
+    sens_matrix[1, 1] = ((phi_D1_1 - phi_base) / (D1 * deviation))**2
+    sens_matrix[2, 2] = ((phi_k1_1 - phi_base) / (k1 * deviation))**2
+    sens_matrix[3, 3] = ((phi_k2_1 - phi_base) / (k2 * deviation))**2
+    sens_matrix[4, 4] = ((phi_kappa_1 - phi_base) / (kappa_1))**2
+    
+    sens_matrix[0, 1] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_D1_1 - phi_base) / (D1 * deviation))
+    sens_matrix[0, 2] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_k1_1 - phi_base) / (k1 * deviation))
+    sens_matrix[0, 3] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
+    sens_matrix[0, 4] = ((phi_C10_1 - phi_base) / (C10 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
+    sens_matrix[1, 0] = sens_matrix[0, 1]
+    sens_matrix[1, 2] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_k1_1 - phi_base) / (k1 * deviation))
+    sens_matrix[1, 3] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
+    sens_matrix[1, 4] = ((phi_D1_1 - phi_base) / (D1 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
+    sens_matrix[2, 0] = sens_matrix[0, 2]
+    sens_matrix[2, 1] = sens_matrix[1, 2]
+    sens_matrix[2, 3] = ((phi_k1_1 - phi_base) / (k1 * deviation)) * ((phi_k2_1 - phi_base) / (k2 * deviation))
+    sens_matrix[2, 4] = ((phi_k1_1 - phi_base) / (k1 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
+    sens_matrix[3, 0] = sens_matrix[0, 3]
+    sens_matrix[3, 1] = sens_matrix[1, 3]
+    sens_matrix[3, 2] = sens_matrix[2, 3]
+    sens_matrix[3, 4] = ((phi_k2_1 - phi_base) / (k2 * deviation)) * ((phi_kappa_1 - phi_base) / (kappa_1))
+    sens_matrix[4, 0] = sens_matrix[0, 4]
+    sens_matrix[4, 1] = sens_matrix[1, 4]
+    sens_matrix[4, 2] = sens_matrix[2, 4]
+    sens_matrix[4, 3] = sens_matrix[3, 4]
+    
+    sens_matrix = np.abs(sens_matrix)
+    sens_matrix = sens_matrix / np.min(sens_matrix)
+    
+    # Print the formatted 5x5 matrix
+    print("Sensitivity Matrix (5x5):")
+    for row in sens_matrix:
+        print(" ".join(f"{value:10.4f}" for value in row))
+
+    return sens_matrix
 
 def main():
-    file_path_undeformed = r"HGO/350k.inp"
+    cur_dir = r"fim/test_data/"
+    file_path_undeformed = cur_dir + r"HGO/350k.inp"
 
     undeformed_nodes, connectivity = read_input_file(file_path_undeformed)
 
@@ -987,13 +1040,13 @@ def main():
     W = abs(np.max(undeformed_nodes[:, 2]) - np.min(undeformed_nodes[:, 2]))
     H = abs(np.max(undeformed_nodes[:, 3]) - np.min(undeformed_nodes[:, 3]))
 
-    X = np.load(r"HGO/X.npy")
-    Y = np.load(r"HGO/Y.npy")
-    Z = np.load(r"HGO/Z.npy")
-    Ux = np.load(r"HGO/Ux.npy")
-    Uy = np.load(r"HGO/Uy.npy")
-    Uz = np.load(r"HGO/Uz.npy")
-    volume_matrix = np.load(r"HGO/volume_matrix.npy")
+    X = np.load(cur_dir + r"HGO/X.npy")
+    Y = np.load(cur_dir + r"HGO/Y.npy")
+    Z = np.load(cur_dir + r"HGO/Z.npy")
+    Ux = np.load(cur_dir + r"HGO/Ux.npy")
+    Uy = np.load(cur_dir + r"HGO/Uy.npy")
+    Uz = np.load(cur_dir + r"HGO/Uz.npy")
+    volume_matrix = np.load(cur_dir + r"HGO/volume_matrix.npy")
 
     X_enlarged = increase_matrix_size(X)
     Y_enlarged = increase_matrix_size(Y)
@@ -1009,14 +1062,17 @@ def main():
         dUx_dx, dUy_dx, dUz_dx, dUx_dy, dUy_dy, dUz_dy, dUx_dz, dUy_dz, dUz_dz
     )
 
-    C10 = 267
-    D1 = 8e-4
-    k1 = 2000
-    k2 = 5
-    kappa = 0
+    # C10 = 267
+    # D1 = 8e-4
+    # k1 = 2000
+    # k2 = 5
+    # kappa = 0
+    
+    C10, D1, k1, k2, kappa = 500, 1e-5, 2000, 5, 0
 
     # needs to be fixed
     # sens=senstivity_full(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa,volume_matrix,Force,0.05)
+    sens=senstivity_full_updated(tensor_displacement_list, X,Y,Z,C10,D1,k1,k2,kappa,volume_matrix,Force,0.05)
 
     initial_guess = np.array([500, 1e-5, 0.05])
     bnds = ((0, 1e-5, 0), (1000, 1e-3, 0.33))

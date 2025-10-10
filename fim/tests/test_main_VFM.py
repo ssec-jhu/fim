@@ -215,6 +215,12 @@ class _FakeMaterialModel:
     def sensitivity_analysis_linear(self, *a, **k):
         return np.ones((5, 5))
 
+    def sensitivity_analysis_hgo(self, *a, **k):
+        return np.ones((5, 5))
+
+    def sensitivity_analysis_nh(self, *a, **k):
+        return np.ones((2, 2))
+
     def get_parameter(self, k, default=None):
         return self.params.get(k, default)
 
