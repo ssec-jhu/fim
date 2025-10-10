@@ -1037,7 +1037,6 @@ def senstivity_full(
     return sens_matrix
 
 
-
 def calculate_phi(args):
     E1, tensor_displacement_list, matrix, E2, v12, v23, Gt, undeformed_centroids, cube_size, Force = args
     alpha = 0.005

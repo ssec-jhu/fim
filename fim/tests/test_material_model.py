@@ -133,7 +133,7 @@ def test_sensitivity_analysis_hgo_calls_underlying(monkeypatch):
 
     monkeypatch.setattr(mm, "sensitivity_full_hgo", fake_sens)
 
-    params = dict(C10=1e3, D1=1e-2, k1=100.0, k2=5.0, kappa=1/3, Force=2.0)
+    params = dict(C10=1e3, D1=1e-2, k1=100.0, k2=5.0, kappa=1 / 3, Force=2.0)
     m = mm.MaterialModel("hgo", params)
 
     # Minimal fake data
@@ -147,7 +147,7 @@ def test_sensitivity_analysis_hgo_calls_underlying(monkeypatch):
     # Verify parameters plumbed correctly
     assert captured["C10"] == 1e3 and captured["D1"] == 1e-2
     assert captured["k1"] == 100.0 and captured["k2"] == 5.0
-    assert captured["kappa"] == 1/3 and captured["Force"] == 2.0
+    assert captured["kappa"] == 1 / 3 and captured["Force"] == 2.0
     assert captured["dev"] == 0.1
     assert captured["shapes"][0] == (3, 3, 3, 3, 3) and captured["shapes"][1] == (3, 3, 3)
 
