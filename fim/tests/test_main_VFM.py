@@ -240,6 +240,7 @@ def _stub_read_input_file(*a, **k):
     return nodes, conn
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("mode", ["linear", "hgo", "nh"])
 def test_main_block_executes_all_modes(monkeypatch, tmp_path, mode):
     ensure_fake_scipy(monkeypatch)
