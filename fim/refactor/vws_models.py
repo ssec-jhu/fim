@@ -47,14 +47,18 @@ def U_star_x_sin(x, y, z, L, H):
     c = 2e-5
     d = np.sqrt(x**2 + y**2)
     t = z / H
-    return np.where((d > 0) & (d < L / 2), c * x / d * t * np.sin(2 * np.pi * d / (L / 2)), 0)
+    # Avoid division by zero by using a small epsilon
+    d_safe = np.where(d == 0, 1e-12, d)
+    return np.where((d > 0) & (d < L / 2), c * x / d_safe * t * np.sin(2 * np.pi * d / (L / 2)), 0)
 
 
 def U_star_y_sin(x, y, z, L, H):
     c = 2e-5
     d = np.sqrt(x**2 + y**2)
     t = z / H
-    return np.where((d > 0) & (d < L / 2), c * y / d * t * np.sin(2 * np.pi * d / (L / 2)), 0)
+    # Avoid division by zero by using a small epsilon
+    d_safe = np.where(d == 0, 1e-12, d)
+    return np.where((d > 0) & (d < L / 2), c * y / d_safe * t * np.sin(2 * np.pi * d / (L / 2)), 0)
 
 
 def U_star_z_cos_devX(x, y, z, L, H):
@@ -182,7 +186,13 @@ def U_star_x_sin_devX(x, y, z, L, H):
     expr1 = c * t * np.pi / (L / 2)
     sin_term = np.sin(2 * np.pi * d / (L / 2))
     cos_term = np.cos(2 * np.pi * d / (L / 2))
-    expr2 = c * t * ((sin_term / d) - (x**2 * sin_term / d**3) + (x**2 * cos_term * 2 * np.pi / (d**2 * (L / 2))))
+    # Avoid division by zero by using a small epsilon
+    d_safe = np.where(d == 0, 1e-12, d)
+    expr2 = (
+        c
+        * t
+        * ((sin_term / d_safe) - (x**2 * sin_term / d_safe**3) + (x**2 * cos_term * 2 * np.pi / (d_safe**2 * (L / 2))))
+    )
     return np.where(d == 0, expr1, np.where(d < L / 2, expr2, 0))
 
 
@@ -192,14 +202,18 @@ def U_star_x_sin_devY(x, y, z, L, H):
     t = z / H
     sin_term = np.sin(2 * np.pi * d / (L / 2))
     cos_term = np.cos(2 * np.pi * d / (L / 2))
-    expr = c * x * t * ((-y / d**3) * sin_term + (cos_term * 2 * np.pi * y / (d**2 * (L / 2))))
+    # Avoid division by zero by using a small epsilon
+    d_safe = np.where(d == 0, 1e-12, d)
+    expr = c * x * t * ((-y / d_safe**3) * sin_term + (cos_term * 2 * np.pi * y / (d_safe**2 * (L / 2))))
     return np.where((d > 0) & (d < L / 2), expr, 0)
 
 
 def U_star_x_sin_devZ(x, y, z, L, H):
     c = 2e-5
     d = np.sqrt(x**2 + y**2)
-    expr = c * x / d * (1 / H) * np.sin(2 * np.pi * d / (L / 2))
+    # Avoid division by zero by using a small epsilon
+    d_safe = np.where(d == 0, 1e-12, d)
+    expr = c * x / d_safe * (1 / H) * np.sin(2 * np.pi * d / (L / 2))
     return np.where((d > 0) & (d < L / 2), expr, 0)
 
 
@@ -209,7 +223,9 @@ def U_star_y_sin_devX(x, y, z, L, H):
     t = z / H
     sin_term = np.sin(2 * np.pi * d / (L / 2))
     cos_term = np.cos(2 * np.pi * d / (L / 2))
-    expr = c * y * t * ((-x / d**3) * sin_term + (cos_term * 2 * np.pi * x / (d**2 * (L / 2))))
+    # Avoid division by zero by using a small epsilon
+    d_safe = np.where(d == 0, 1e-12, d)
+    expr = c * y * t * ((-x / d_safe**3) * sin_term + (cos_term * 2 * np.pi * x / (d_safe**2 * (L / 2))))
     return np.where((d > 0) & (d < L / 2), expr, 0)
 
 
@@ -220,14 +236,22 @@ def U_star_y_sin_devY(x, y, z, L, H):
     expr1 = c * t * np.pi / (L / 2)
     sin_term = np.sin(2 * np.pi * d / (L / 2))
     cos_term = np.cos(2 * np.pi * d / (L / 2))
-    expr2 = c * t * ((sin_term / d) - (y**2 * sin_term / d**3) + (y**2 * cos_term * 2 * np.pi / (d**2 * (L / 2))))
+    # Avoid division by zero by using a small epsilon
+    d_safe = np.where(d == 0, 1e-12, d)
+    expr2 = (
+        c
+        * t
+        * ((sin_term / d_safe) - (y**2 * sin_term / d_safe**3) + (y**2 * cos_term * 2 * np.pi / (d_safe**2 * (L / 2))))
+    )
     return np.where(d == 0, expr1, np.where(d < L / 2, expr2, 0))
 
 
 def U_star_y_sin_devZ(x, y, z, L, H):
     c = 2e-5
     d = np.sqrt(x**2 + y**2)
-    expr = c * y / d * (1 / H) * np.sin(2 * np.pi * d / (L / 2))
+    # Avoid division by zero by using a small epsilon
+    d_safe = np.where(d == 0, 1e-12, d)
+    expr = c * y / d_safe * (1 / H) * np.sin(2 * np.pi * d / (L / 2))
     return np.where((d > 0) & (d < L / 2), expr, 0)
 
 
