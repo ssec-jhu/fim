@@ -4,7 +4,7 @@ Description: Implements full-field virtual fields method computations for suppor
 
 import numpy as np
 
-depth_indentation = 4.1e-05 # 3.2e-05  # meters (default) 
+depth_indentation = 4.1e-05  # 3.2e-05  # meters (default)
 sphere_radius = 1e-3  # meters (1 mm)
 contact_radius = np.sqrt(depth_indentation * sphere_radius)
 

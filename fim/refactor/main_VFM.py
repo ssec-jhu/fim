@@ -111,13 +111,18 @@ def _auto_crop_blank_z(Ux, Uy, Uz, *grids, threshold=1e-30):
 
     Returns cropped copies of (Ux, Uy, Uz, *grids).
     """
-    mag_per_z = np.sqrt(Ux ** 2 + Uy ** 2 + Uz ** 2).max(axis=(0, 1))
+    mag_per_z = np.sqrt(Ux**2 + Uy**2 + Uz**2).max(axis=(0, 1))
     nonzero = np.where(mag_per_z > threshold)[0]
     if nonzero.size == 0 or (nonzero[0] == 0 and nonzero[-1] == Ux.shape[2] - 1):
         return (Ux, Uy, Uz) + grids  # nothing to crop
     z0, z1 = int(nonzero[0]), int(nonzero[-1]) + 1
-    logging.info("Auto Z-crop: keeping Z slices [%d:%d] of %d (removed %d blank slices).",
-                 z0, z1, Ux.shape[2], Ux.shape[2] - (z1 - z0))
+    logging.info(
+        "Auto Z-crop: keeping Z slices [%d:%d] of %d (removed %d blank slices).",
+        z0,
+        z1,
+        Ux.shape[2],
+        Ux.shape[2] - (z1 - z0),
+    )
     cropped = [a[:, :, z0:z1] for a in (Ux, Uy, Uz) + grids]
     return tuple(cropped)
 
@@ -157,9 +162,7 @@ def load_common_fields(folder):
     if swap:
         volume_matrix = np.swapaxes(volume_matrix, 0, 1)
 
-    Ux, Uy, Uz, X, Y, Z, volume_matrix = _auto_crop_blank_z(
-        Ux, Uy, Uz, X, Y, Z, volume_matrix
-    )
+    Ux, Uy, Uz, X, Y, Z, volume_matrix = _auto_crop_blank_z(Ux, Uy, Uz, X, Y, Z, volume_matrix)
 
     # Update indentation depth used by virtual fields:
     set_depth_indentation_from_Uz(Uz)
@@ -230,7 +233,7 @@ if __name__ == "__main__":
             # "Force": 7.6e-5
             # "Force": 2.967e-05
             # "Force": 3.18e-5
-            "Force": 4.18e-05
+            "Force": 4.18e-05,
         }
         linear_model = MaterialModel("linear", linear_params)
 
