@@ -14,6 +14,7 @@ from fim.refactor.vws_models import (
     increase_matrix_size,
     map_elements_to_centraldiff,
     read_input_file,
+    set_depth_indentation_from_Uz,
 )
 
 # Setup logging
@@ -88,6 +89,39 @@ def run_inverse_model(displacement_field, X, Y, Z, volume_matrix, initial_guess,
     return result.x
 
 
+def _needs_xy_swap(X: np.ndarray) -> bool:
+    """Detect if X varies along axis 0 (physics convention: X,Y,Z)
+    instead of axis 1 (image convention: Y,X,Z that VFM code expects).
+
+    Returns True when a swap of axes 0 and 1 is needed.
+    """
+    if X.ndim != 3 or X.shape[0] < 2 or X.shape[1] < 2:
+        return False
+    x_varies_ax0 = abs(float(X[1, 0, 0]) - float(X[0, 0, 0])) > 1e-30
+    x_varies_ax1 = abs(float(X[0, 1, 0]) - float(X[0, 0, 0])) > 1e-30
+    # X should vary along axis 1 for VFM.  If it varies along axis 0 instead → swap.
+    return x_varies_ax0 and not x_varies_ax1
+
+
+def _auto_crop_blank_z(Ux, Uy, Uz, *grids, threshold=1e-30):
+    """Remove leading/trailing Z slices (axis 2) that are entirely zero.
+
+    Blank slices create artificial gradient spikes at the zero/non-zero boundary
+    which corrupt the strain calculation.
+
+    Returns cropped copies of (Ux, Uy, Uz, *grids).
+    """
+    mag_per_z = np.sqrt(Ux ** 2 + Uy ** 2 + Uz ** 2).max(axis=(0, 1))
+    nonzero = np.where(mag_per_z > threshold)[0]
+    if nonzero.size == 0 or (nonzero[0] == 0 and nonzero[-1] == Ux.shape[2] - 1):
+        return (Ux, Uy, Uz) + grids  # nothing to crop
+    z0, z1 = int(nonzero[0]), int(nonzero[-1]) + 1
+    logging.info("Auto Z-crop: keeping Z slices [%d:%d] of %d (removed %d blank slices).",
+                 z0, z1, Ux.shape[2], Ux.shape[2] - (z1 - z0))
+    cropped = [a[:, :, z0:z1] for a in (Ux, Uy, Uz) + grids]
+    return tuple(cropped)
+
+
 def load_common_fields(folder):
     """Loads nodal coordinates and displacement fields, computes deformation gradient tensors,
     and load volume_matrix.
@@ -104,6 +138,32 @@ def load_common_fields(folder):
     Uy = np.load(f"{folder}/Uy.npy")
     Uz = np.load(f"{folder}/Uz.npy")
 
+    # Auto-detect axis convention.
+    # central_differentiation expects X along axis 1, Y along axis 0 (image convention).
+    # deformation_tracking.py outputs X along axis 0, Y along axis 1 (physics convention).
+    # If needed, swap axes 0 and 1 so downstream code always sees the image convention.
+    swap = _needs_xy_swap(X)
+    if swap:
+        logging.info("Detected (X,Y,Z) axis order — swapping axes 0,1 to match VFM convention (Y,X,Z).")
+        X = np.swapaxes(X, 0, 1)
+        Y = np.swapaxes(Y, 0, 1)
+        Z = np.swapaxes(Z, 0, 1)
+        Ux = np.swapaxes(Ux, 0, 1)
+        Uy = np.swapaxes(Uy, 0, 1)
+        Uz = np.swapaxes(Uz, 0, 1)
+
+    # Remove leading/trailing blank Z slices to avoid artificial gradient spikes.
+    volume_matrix = np.load(f"{folder}/volume_matrix.npy")
+    if swap:
+        volume_matrix = np.swapaxes(volume_matrix, 0, 1)
+
+    Ux, Uy, Uz, X, Y, Z, volume_matrix = _auto_crop_blank_z(
+        Ux, Uy, Uz, X, Y, Z, volume_matrix
+    )
+
+    # Update indentation depth used by virtual fields:
+    set_depth_indentation_from_Uz(Uz)
+
     X_e = increase_matrix_size(X)
     Y_e = increase_matrix_size(Y)
     Z_e = increase_matrix_size(Z)
@@ -113,8 +173,6 @@ def load_common_fields(folder):
 
     grads = central_differentiation(Ux_e, Uy_e, Uz_e, X_e, Y_e, Z_e)
     tensor_displacement_list = map_elements_to_centraldiff(*grads)
-
-    volume_matrix = np.load(f"{folder}/volume_matrix.npy")
 
     return X, Y, Z, tensor_displacement_list, volume_matrix
 
@@ -158,20 +216,27 @@ if __name__ == "__main__":
         H = np.ceil((np.max(Z) - np.min(Z)) * 1e4) / 1e4
 
         linear_params = {
-            "E1": 7000,
-            "E2": 500,
+            "E1": 15000,
+            # "E2": 500,
+            "E2": 15000,
             "v12": 0.49,
             "v23": 0.49,
             "Gt": 0.5e3,
             "L": L,
             "W": W,
             "H": H,
-            "Force": 9.49803e-06,
+            # "Force": 9.49803e-06,
+            # "Force": 3.18e-4
+            # "Force": 7.6e-5
+            # "Force": 2.967e-05
+            # "Force": 3.18e-5
+            "Force": 4.18e-05
         }
         linear_model = MaterialModel("linear", linear_params)
 
         initial_guess = [linear_params["E1"], linear_params["E2"]]
-        bounds = ((2000, 500), (9000, 2500))
+        # bounds = ((2000, 500), (9000, 2500))
+        bounds = ((1000, 1000), (25000, 25000))
 
         # Print initial values and bounds
         logging.info("Linear model initial values: E1 = %.2f, E2 = %.2f", *initial_guess)

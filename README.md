@@ -75,6 +75,39 @@ For additional cmds see the [Conda cheat-sheet](https://docs.conda.io/projects/c
 ### Usage:
 To be completed by child repo.
 
+## FIM UI (dynamic parameters)
+
+This repo includes a lightweight web UI that **renders parameters dynamically** from
+`fim/app/schemas/fim_params.schema.json`. To add/remove parameters later, update the schema
+and you **do not need to edit UI code**.
+
+### Start the UI server
+
+Install UI dependencies:
+
+```bash
+pip install -r requirements/prd.txt
+```
+
+Run the server:
+
+```bash
+uvicorn fim.app.main:app --reload
+```
+
+Open:
+- `http://127.0.0.1:8000/ui`
+
+### CLI wrapper (schema-driven)
+
+Run without the UI:
+
+```bash
+python -m fim.app.cli list-steps
+python -m fim.app.cli show-step tracking
+python -m fim.app.cli run tracking --set out_dir=/tmp/fim-out --set num_iter=200
+```
+
 
 # Testing
 _NOTE: The following steps require ``pip install -r requirements/dev.txt``._
