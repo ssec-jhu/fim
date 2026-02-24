@@ -4,9 +4,19 @@ Description: Implements full-field virtual fields method computations for suppor
 
 import numpy as np
 
-depth_indentation = 3.2e-05
-sphere_radius = 5e-4
+depth_indentation = 4.1e-05  # 3.2e-05  # meters (default)
+sphere_radius = 1e-3  # meters (1 mm)
 contact_radius = np.sqrt(depth_indentation * sphere_radius)
+
+
+def set_depth_indentation_from_Uz(Uz: np.ndarray) -> None:
+    """Update indentation depth used by virtual fields: depth_indentation = max(abs(Uz))."""
+    global depth_indentation, contact_radius
+    depth_indentation = float(np.max(np.abs(Uz)))
+    # avoid a=0
+    if depth_indentation < 1e-12:
+        depth_indentation = 1e-12
+    contact_radius = np.sqrt(depth_indentation * sphere_radius)
 
 
 def U_star_z_cos(x, y, z, L, H):
