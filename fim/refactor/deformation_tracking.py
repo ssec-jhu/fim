@@ -47,7 +47,6 @@ from skimage import io
 from skimage.registration import phase_cross_correlation
 from tqdm.auto import tqdm
 
-
 # ----------------------------
 # Defaults (Exp2) You can change the paths to your own data in CLI args.
 # ----------------------------
@@ -118,12 +117,12 @@ def interpolated_prediction(
     if trilinear_interp:
         fx, fy, fz, cx, cy, cz = cx, cy, cz, fx, fy, fz
     else:
-        fx = torch.exp(-fx**2 / (2 * sig_proj**2))
-        fy = torch.exp(-fy**2 / (2 * sig_proj**2))
-        fz = torch.exp(-fz**2 / (2 * sig_proj**2))
-        cx = torch.exp(-cx**2 / (2 * sig_proj**2))
-        cy = torch.exp(-cy**2 / (2 * sig_proj**2))
-        cz = torch.exp(-cz**2 / (2 * sig_proj**2))
+        fx = torch.exp(-(fx**2) / (2 * sig_proj**2))
+        fy = torch.exp(-(fy**2) / (2 * sig_proj**2))
+        fz = torch.exp(-(fz**2) / (2 * sig_proj**2))
+        cx = torch.exp(-(cx**2) / (2 * sig_proj**2))
+        cy = torch.exp(-(cy**2) / (2 * sig_proj**2))
+        cz = torch.exp(-(cz**2) / (2 * sig_proj**2))
 
     f1 = fx * fy * fz
     f2 = fx * cy * fz
@@ -178,7 +177,9 @@ def load_tiff_zyx_to_xyz(path: str, z_start: int, z_end: int | None, downsamp_xy
     return vol_zyx.transpose(2, 1, 0)
 
 
-def estimate_initial_shift(stack_with_sphere_xyz: np.ndarray, stack_without_sphere_xyz: np.ndarray) -> tuple[np.ndarray, float]:
+def estimate_initial_shift(
+    stack_with_sphere_xyz: np.ndarray, stack_without_sphere_xyz: np.ndarray
+) -> tuple[np.ndarray, float]:
     """
     Estimate initial XY and Z shifts (in pixels) using phase cross correlation on projections.
 
@@ -190,7 +191,7 @@ def estimate_initial_shift(stack_with_sphere_xyz: np.ndarray, stack_without_sphe
     max_without = stack_without_sphere_xyz.max(2)
     xy_shift, _, _ = phase_cross_correlation(max_with, max_without, upsample_factor=32)
 
-    yz_with = stack_with_sphere_xyz.max(0)   # (Y,Z)
+    yz_with = stack_with_sphere_xyz.max(0)  # (Y,Z)
     yz_without = stack_without_sphere_xyz.max(0)
     yz_shift, _, _ = phase_cross_correlation(yz_with, yz_without, upsample_factor=32)
     z_shift = float(yz_shift[1])
@@ -228,7 +229,9 @@ def write_xyz_grids_m(
     del X_mm, Y_mm, Z_mm
 
 
-def write_volume_matrix_m3(out_dir: Path, shape: tuple[int, int, int], voxel_volume_m3: float, dtype=np.float32) -> None:
+def write_volume_matrix_m3(
+    out_dir: Path, shape: tuple[int, int, int], voxel_volume_m3: float, dtype=np.float32
+) -> None:
     """Write volume_matrix.npy as disk-backed array filled with a constant voxel volume."""
     vol_mm = open_memmap(out_dir / "volume_matrix.npy", mode="w+", dtype=dtype, shape=shape)
     nz = shape[2]
@@ -287,7 +290,9 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--with_sphere", type=str, default=DEFAULT_WITH_SPHERE, help="Path to deformed TIFF (with sphere)")
-    p.add_argument("--without_sphere", type=str, default=DEFAULT_WITHOUT_SPHERE, help="Path to reference TIFF (no sphere)")
+    p.add_argument(
+        "--without_sphere", type=str, default=DEFAULT_WITHOUT_SPHERE, help="Path to reference TIFF (no sphere)"
+    )
     p.add_argument(
         "--out_dir",
         type=str,
@@ -344,7 +349,7 @@ def main() -> None:
         "--skip_grids",
         action="store_true",
         help="Skip writing X/Y/Z grids and volume_matrix (saves disk I/O when running with inverse modeling next). "
-             "A grid_params.json is always saved so main_VFM.py can recreate them.",
+        "A grid_params.json is always saved so main_VFM.py can recreate them.",
     )
     p.add_argument(
         "--smooth_method",
@@ -352,8 +357,8 @@ def main() -> None:
         default="none",
         choices=["none", "gaussian", "laplacian"],
         help="Post-processing smoothing on final displacement field. "
-             "gaussian: Gaussian low-pass filter (best for general noise). "
-             "laplacian: iterative Laplacian diffusion (structure-preserving, common in mechanics).",
+        "gaussian: Gaussian low-pass filter (best for general noise). "
+        "laplacian: iterative Laplacian diffusion (structure-preserving, common in mechanics).",
     )
     p.add_argument(
         "--smooth_sigma",
@@ -402,9 +407,9 @@ def main() -> None:
     dxy_eff_um = args.dxy_um * args.downsamp_xy
     dz_eff_um = args.dz_um * args.downsamp_z
 
-    x_axis_um_centered = (torch.arange(nx, device=device, dtype=torch.float32) * dxy_eff_um)
-    y_axis_um_centered = (torch.arange(ny, device=device, dtype=torch.float32) * dxy_eff_um)
-    z_axis_um_centered = (torch.arange(nz, device=device, dtype=torch.float32) * dz_eff_um)
+    x_axis_um_centered = torch.arange(nx, device=device, dtype=torch.float32) * dxy_eff_um
+    y_axis_um_centered = torch.arange(ny, device=device, dtype=torch.float32) * dxy_eff_um
+    z_axis_um_centered = torch.arange(nz, device=device, dtype=torch.float32) * dz_eff_um
     x_axis_um_centered -= x_axis_um_centered.mean()
     y_axis_um_centered -= y_axis_um_centered.mean()
     z_axis_um_centered -= z_axis_um_centered.mean()
@@ -501,7 +506,7 @@ def main() -> None:
         # UI-friendly progress marker (stdout, parseable)
         if progress_every and progress_every > 0:
             if (i + 1) % progress_every == 0 or (i + 1) == args.num_iter:
-                msg = f"FIM_PROGRESS iter={i+1} total={args.num_iter}"
+                msg = f"FIM_PROGRESS iter={i + 1} total={args.num_iter}"
                 if ui_no_tqdm:
                     # In UI mode we disable tqdm, so print cleanly without redraw artifacts.
                     print(msg, file=sys.stderr, flush=True)
@@ -564,7 +569,8 @@ def main() -> None:
     if args.smooth_method != "none":
         print(
             f"Smoothing displacement field ({Ux_m.shape}): method={args.smooth_method}, sigma={args.smooth_sigma}",
-            file=sys.stderr, flush=True,
+            file=sys.stderr,
+            flush=True,
         )
         Ux_m = smooth_displacement_field(Ux_m, args.smooth_method, args.smooth_sigma)
         Uy_m = smooth_displacement_field(Uy_m, args.smooth_method, args.smooth_sigma)
@@ -633,4 +639,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

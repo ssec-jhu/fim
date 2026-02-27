@@ -25,6 +25,7 @@ job_mgr = JobManager()
 
 # ── Static files & UI ───────────────────────────────────────────────
 
+
 @app.get("/")
 async def root():
     return FileResponse(_STATIC_DIR / "index.html")
@@ -35,12 +36,14 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # ── Health ───────────────────────────────────────────────────────────
 
+
 @app.get("/healthz")
 async def healthz():
     return {"message": f"Running '{__project__}' ver: '{__version__}'"}
 
 
 # ── Step metadata ────────────────────────────────────────────────────
+
 
 @app.get("/api/steps")
 async def api_list_steps():
@@ -77,6 +80,7 @@ async def api_get_step(step_id: str):
 
 # ── Filesystem browsing ──────────────────────────────────────────────
 
+
 @app.get("/api/fs/list")
 async def api_fs_list(path: str | None = None):
     target = Path(path).resolve() if path else Path.home()
@@ -96,6 +100,7 @@ async def api_fs_list(path: str | None = None):
 
 # ── File upload ──────────────────────────────────────────────────────
 
+
 @app.post("/api/upload")
 async def api_upload(file: UploadFile):
     dest = _UPLOAD_DIR / f"{uuid.uuid4().hex}_{file.filename}"
@@ -105,6 +110,7 @@ async def api_upload(file: UploadFile):
 
 
 # ── Single-step async run ───────────────────────────────────────────
+
 
 class RunRequest(BaseModel):
     params: dict[str, Any] = {}
@@ -120,6 +126,7 @@ async def api_run_async(step_id: str, req: RunRequest):
 
 
 # ── Multi-step pipeline async run ───────────────────────────────────
+
 
 class PipelineRequest(BaseModel):
     start_step_id: str
@@ -144,6 +151,7 @@ async def api_run_pipeline_async(req: PipelineRequest):
 
 
 # ── Job status polling ──────────────────────────────────────────────
+
 
 @app.get("/api/jobs/{job_id}")
 async def api_get_job(job_id: str):

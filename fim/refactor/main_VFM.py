@@ -53,8 +53,12 @@ parser.add_argument("--kappa_init", type=float, default=0.05, help="Fiber disper
 # NH model parameters (C10_init and D1_init are shared with HGO)
 
 # Optional mesh file for L/W/H dimensions (falls back to coordinate grids)
-parser.add_argument("--mesh_file", type=str, default=None,
-                    help="Optional .inp mesh file for sample dimensions. If omitted, L/W/H are computed from coordinate grids.")
+parser.add_argument(
+    "--mesh_file",
+    type=str,
+    default=None,
+    help="Optional .inp mesh file for sample dimensions. If omitted, L/W/H are computed from coordinate grids.",
+)
 
 args = parser.parse_args()
 
@@ -177,7 +181,9 @@ def _create_grids_from_params(folder, shape):
 
     logging.info(
         "Created grids from grid_params.json: shape=%s, dxy=%.3e m, dz=%.3e m",
-        shape, dxy_m, dz_m,
+        shape,
+        dxy_m,
+        dz_m,
     )
     return X, Y, Z, volume_matrix
 
@@ -408,5 +414,6 @@ if __name__ == "__main__":
 
     # Flush stdout so sensitivity matrix prints complete before the final timing line
     import sys
+
     sys.stdout.flush()
     logging.info(f"Total runtime: {time.time() - start_time:.1f} seconds")
