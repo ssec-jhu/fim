@@ -1,0 +1,133 @@
+from __future__ import annotations
+
+import re
+import threading
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+from .pipeline_runner import RunResult, run_pipeline_streaming, run_step_streaming
+from .steps_registry import StepSpec, normalize_params
+
+_PROG_RE = re.compile(r"^FIM_PROGRESS\s+iter=(\d+)\s+total=(\d+)\s*$")
+
+
+@dataclass
+class JobState:
+    job_id: str
+    created_at: float = field(default_factory=time.time)
+    started_at: float | None = None
+    finished_at: float | None = None
+    status: str = "queued"  # queued|running|done|failed
+    step_id: str | None = None
+    progress: dict[str, Any] = field(default_factory=dict)
+    log: str = ""
+    results: list[RunResult] = field(default_factory=list)
+
+    def append_log(self, text: str, limit: int = 200_000) -> None:
+        self.log += text
+        if len(self.log) > limit:
+            self.log = self.log[-limit:]
+
+
+class JobManager:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._jobs: dict[str, JobState] = {}
+
+    def create(self, job_id: str) -> JobState:
+        with self._lock:
+            job = JobState(job_id=job_id)
+            self._jobs[job_id] = job
+            return job
+
+    def get(self, job_id: str) -> JobState | None:
+        with self._lock:
+            return self._jobs.get(job_id)
+
+    def _update(self, job_id: str, fn: Callable[[JobState], None]) -> None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return
+            fn(job)
+
+    def start_step(self, job_id: str, step: StepSpec, params: dict[str, Any]) -> None:
+        params = normalize_params(step, params)
+
+        def worker():
+            self._update(job_id, lambda j: setattr(j, "status", "running"))
+            self._update(job_id, lambda j: setattr(j, "started_at", time.time()))
+            self._update(job_id, lambda j: setattr(j, "step_id", step.step_id))
+
+            def on_line(src: str, line: str) -> None:
+                # append to log
+                self._update(job_id, lambda j: j.append_log(f"[{src}] {line}"))
+                # parse progress markers
+                m = _PROG_RE.match(line.strip())
+                if m:
+                    it = int(m.group(1))
+                    total = int(m.group(2))
+                    self._update(
+                        job_id,
+                        lambda j: j.progress.update({"iter": it, "total": total, "step_id": step.step_id}),
+                    )
+
+            res = run_step_streaming(
+                step,
+                params,
+                on_stdout=lambda ln: on_line("stdout", ln),
+                on_stderr=lambda ln: on_line("stderr", ln),
+                env_overrides={"FIM_UI_NO_TQDM": "1"},
+            )
+            # If runner returns early (e.g. "not implemented"), ensure message is visible in log.
+            # For normal runs, output is already streamed line-by-line via callbacks.
+            if not res.command:
+                if res.stdout:
+                    self._update(job_id, lambda j: j.append_log(res.stdout))
+                if res.stderr:
+                    self._update(job_id, lambda j: j.append_log(res.stderr))
+            self._update(job_id, lambda j: j.results.append(res))
+            self._update(job_id, lambda j: setattr(j, "finished_at", time.time()))
+            self._update(job_id, lambda j: setattr(j, "status", "done" if res.ok else "failed"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def start_pipeline(self, job_id: str, steps: list[StepSpec], params_by_step: dict[str, dict[str, Any]]) -> None:
+        normalized = {s.step_id: normalize_params(s, params_by_step.get(s.step_id, {})) for s in steps}
+
+        def worker():
+            self._update(job_id, lambda j: setattr(j, "status", "running"))
+            self._update(job_id, lambda j: setattr(j, "started_at", time.time()))
+
+            def on_line(step_id: str, src: str, line: str) -> None:
+                self._update(job_id, lambda j: setattr(j, "step_id", step_id))
+                self._update(job_id, lambda j: j.append_log(f"[{step_id} {src}] {line}"))
+                m = _PROG_RE.match(line.strip())
+                if m:
+                    it = int(m.group(1))
+                    total = int(m.group(2))
+                    self._update(
+                        job_id,
+                        lambda j: j.progress.update({"iter": it, "total": total, "step_id": step_id}),
+                    )
+
+            pres = run_pipeline_streaming(
+                steps,
+                normalized,
+                on_stdout=lambda step_id, ln: on_line(step_id, "stdout", ln),
+                on_stderr=lambda step_id, ln: on_line(step_id, "stderr", ln),
+                env_overrides_by_step={"tracking": {"FIM_UI_NO_TQDM": "1"}},
+            )
+            # Ensure any non-streamed stderr/stdout is captured (e.g., early "not implemented").
+            for r in pres.results:
+                if not r.command:
+                    if r.stdout:
+                        self._update(job_id, lambda j, t=r.stdout: j.append_log(t))
+                    if r.stderr:
+                        self._update(job_id, lambda j, t=r.stderr: j.append_log(t))
+            self._update(job_id, lambda j: j.results.extend(pres.results))
+            self._update(job_id, lambda j: setattr(j, "finished_at", time.time()))
+            self._update(job_id, lambda j: setattr(j, "status", "done" if pres.ok else "failed"))
+
+        threading.Thread(target=worker, daemon=True).start()

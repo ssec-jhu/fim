@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FIM - Full-field Indentation Microscopy</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            margin: 0;
+            transition: padding 0.3s ease;
+        }
+        body.fullscreen { padding: 0; overflow: hidden; }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 40px);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        body.fullscreen .container {
+            width: 100vw; height: 100vh; max-width: none; border-radius: 0; margin: 0;
+        }
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        header p { font-size: 1.1em; opacity: 0.9; }
+        .workflow-steps {
+            display: flex;
+            justify-content: space-around;
+            padding: 30px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .step { text-align: center; position: relative; flex: 1; cursor: pointer; user-select: none; }
+        .step-number {
+            width: 50px; height: 50px; border-radius: 50%;
+            background: #667eea; color: white;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 10px;
+            font-size: 1.5em; font-weight: bold;
+        }
+        .step.active .step-number { background: #28a745; animation: pulse 2s infinite; }
+        .step.completed .step-number { background: #28a745; }
+        .step-title { font-weight: bold; margin-bottom: 5px; }
+        .step-description { font-size: 0.9em; color: #666; }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            flex: 1;
+            overflow: hidden;
+        }
+        .sidebar {
+            background: #f8f9fa;
+            padding: 30px;
+            border-right: 2px solid #e9ecef;
+            overflow-y: auto;
+            height: 100%;
+        }
+        .workspace {
+            padding: 30px;
+            overflow-y: auto;
+            height: 100%;
+        }
+
+        .section { margin-bottom: 30px; }
+        .section-title {
+            font-size: 1.1em;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+            display: flex;
+            align-items: center;
+        }
+        .section-title::before { content: "▸"; margin-right: 8px; color: #667eea; }
+
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: 500; color: #555; }
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.95em;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 100%;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+            width: 100%;
+        }
+        .btn-secondary:hover { background: #5a6268; }
+
+        .advanced-options { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px; }
+        .advanced-options summary { cursor: pointer; font-weight: 600; color: #667eea; margin-bottom: 10px; }
+
+        .tabs { display: flex; border-bottom: 2px solid #e9ecef; margin-bottom: 20px; }
+        .tab { padding: 12px 24px; cursor: pointer; border: none; background: none; font-size: 1em; font-weight: 500; color: #666; position: relative; }
+        .tab.active { color: #667eea; }
+        .tab.active::after { content: ""; position: absolute; bottom: -2px; left: 0; right: 0; height: 2px; background: #667eea; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .preview-area {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            min-height: 220px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: flex-start;
+            flex-direction: column;
+        }
+
+        .output-split {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .output-card {
+            width: 100%;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 14px;
+        }
+
+        .output-card-title {
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .progress-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .progress-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 12px;
+            color: #555;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 10px;
+            background: #e9ecef;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.25s linear;
+        }
+
+        .log-area {
+            width: 100%;
+            background: #0b1020;
+            color: #d1e7ff;
+            padding: 12px;
+            border-radius: 10px;
+            overflow: auto;
+            font-size: 12px;
+            line-height: 1.4;
+            max-height: 520px;
+            white-space: pre-wrap;
+        }
+
+        .param-compact {
+            width: 100%;
+            background: #fff;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 10px 12px;
+        }
+
+        .param-compact summary {
+            cursor: pointer;
+            font-weight: 700;
+            color: #333;
+            list-style: none;
+        }
+
+        .param-compact summary::-webkit-details-marker { display: none; }
+
+        .param-compact .hint {
+            margin-top: 6px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        pre {
+            width: 100%;
+            background: #0b1020;
+            color: #d1e7ff;
+            padding: 12px;
+            border-radius: 8px;
+            overflow: auto;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .zoom-button {
+            position: fixed;
+            top: 30px;
+            right: 30px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 1.5em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+        .zoom-button:hover { transform: scale(1.1); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+        .zoom-tooltip {
+            position: absolute;
+            right: 60px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .zoom-button:hover .zoom-tooltip { opacity: 1; }
+
+        /* Folder picker modal */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+        .modal-backdrop.active { display: flex; }
+        .modal {
+            width: min(720px, calc(100vw - 40px));
+            max-height: min(80vh, 680px);
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-header {
+            padding: 14px 16px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .modal-title { font-weight: 800; color: #333; }
+        .modal-body { padding: 12px 16px; overflow: auto; }
+        .path-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+            color: #333;
+            font-size: 13px;
+        }
+        .dir-list { display: grid; gap: 6px; }
+        .dir-item {
+            padding: 10px 12px;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            cursor: pointer;
+            background: #fff;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: center;
+        }
+        .dir-item:hover { background: #f0f4ff; border-color: #667eea; }
+        .dir-item .name { font-weight: 700; }
+        .dir-item .path { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; color: #666; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+    </style>
+</head>
+<body>
+    <button class="zoom-button" onclick="toggleFullscreen()" title="Toggle Fullscreen">
+        <span id="zoom-icon">⊞</span>
+        <span class="zoom-tooltip" id="zoom-tooltip">Expand to Fullscreen (F11)</span>
+    </button>
+
+    <div class="container">
+        <header>
+            <h1>🔬 FIM</h1>
+            <p>Full-field Indentation Microscopy</p>
+        </header>
+
+        <div class="workflow-steps">
+            <div class="step active" id="wf-step-0">
+                <div class="step-number">1</div>
+                <div class="step-title">Distortion</div>
+                <div class="step-description">Correct optical aberrations</div>
+            </div>
+            <div class="step" id="wf-step-1">
+                <div class="step-number">2</div>
+                <div class="step-title">Tracking</div>
+                <div class="step-description">Deformation field reconstruction</div>
+            </div>
+            <div class="step" id="wf-step-2">
+                <div class="step-number">3</div>
+                <div class="step-title">Inverse</div>
+                <div class="step-description">Extract material properties</div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <aside class="sidebar">
+                <div class="section">
+                    <div class="section-title" id="essential-title">Essential Parameters</div>
+                    <div id="essential-params"></div>
+                </div>
+
+                <details class="advanced-options">
+                    <summary id="advanced-title">⚙️ Advanced Parameters</summary>
+                    <div id="advanced-params" style="margin-top: 10px;"></div>
+                </details>
+
+                <button class="btn btn-primary" style="margin-top: 20px;" onclick="runSelectedStep()">
+                    ▶️ Run Selected Step
+                </button>
+
+                <button class="btn btn-primary" style="margin-top: 10px;" onclick="runFromHerePipeline()">
+                    ⚡ Run From Here (Pipeline)
+                </button>
+
+                <button class="btn btn-secondary" style="margin-top: 10px;" onclick="loadSchemaDebug()">
+                    🔎 Reload Schema
+                </button>
+            </aside>
+
+            <main class="workspace">
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab(0)">Output</button>
+                    <button class="tab" onclick="switchTab(1)">Schema</button>
+                </div>
+
+                <div class="tab-content active">
+                    <h2 id="output-title">Output</h2>
+                    <div class="output-split" style="margin-top: 15px;">
+                        <div class="output-card">
+                            <div class="output-card-title">
+                                <span>Current parameters</span>
+                                <span id="run-state-badge" style="font-size:12px;color:#555;">Idle</span>
+                            </div>
+                            <details class="param-compact">
+                                <summary id="param-summary">Captured params</summary>
+                                <div class="hint">This is just a snapshot for the run; edit values in the left sidebar.</div>
+                                <div id="param-json" class="log-area" style="max-height:160px; margin-top:10px; background:#11162a;"></div>
+                            </details>
+                        </div>
+
+                        <div class="output-card">
+                            <div class="output-card-title">
+                                <span>Status & logs</span>
+                            </div>
+                            <div class="progress-wrap" id="progress-wrap" style="display:none;">
+                                <div class="progress-meta">
+                                    <span id="progress-left">Starting…</span>
+                                    <span id="progress-right">Elapsed: 0s</span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" id="progress-fill"></div>
+                                </div>
+                            </div>
+                            <div id="output-log" class="log-area">Ready.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content">
+                    <h2>Schema</h2>
+                    <div class="preview-area" style="margin-top: 15px;">
+                        <pre id="schema-json">Loading...</pre>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Folder picker modal -->
+    <div class="modal-backdrop" id="dir-modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="Select output folder">
+            <div class="modal-header">
+                <div class="modal-title">Select Output Folder</div>
+                <button class="btn btn-secondary" style="width:auto; padding:8px 12px;" onclick="closeDirModal()">Close</button>
+            </div>
+            <div class="modal-body">
+                <div class="path-row">
+                    <div>
+                        <div style="font-weight:700;">Current:</div>
+                        <div id="dir-current" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:#555;"></div>
+                    </div>
+                    <button class="btn btn-secondary" style="width:auto; padding:8px 12px;" onclick="dirUp()">Up</button>
+                </div>
+                <div class="dir-list" id="dir-list"></div>
+                <div style="margin-top:12px; color:#666; font-size:12px;">
+                    Note: This browser lists folders on the machine running the UI server (restricted to your home directory).
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let STEPS = [];
+        let ACTIVE_STEP_ID = null;
+        let ACTIVE_SCHEMA = null;
+        let RUN_TIMER = null;
+        let RUN_T0 = null;
+        let RUN_EST_MS = null;
+
+        // Cross-step parameter sync: fields with the same "sync" key share values.
+        const SYNCED_VALUES = {};  // { syncKey: value }
+        function onSyncedChange(syncKey, value) {
+            SYNCED_VALUES[syncKey] = value;
+            document.querySelectorAll(`[data-sync="${syncKey}"]`).forEach(el => {
+                if (el.value !== String(value)) el.value = value;
+            });
+        }
+
+        // Folder picker state
+        let DIR_MODAL_KEY = null;
+        let DIR_MODAL_PATH = null;
+        let DIR_MODAL_ROOT = null;
+
+        function toggleFullscreen() {
+            const body = document.body;
+            const zoomIcon = document.getElementById('zoom-icon');
+            const zoomTooltip = document.getElementById('zoom-tooltip');
+            body.classList.toggle('fullscreen');
+            if (body.classList.contains('fullscreen')) {
+                zoomIcon.textContent = '⊟';
+                zoomTooltip.textContent = 'Exit Fullscreen (Esc)';
+            } else {
+                zoomIcon.textContent = '⊞';
+                zoomTooltip.textContent = 'Expand to Fullscreen (F11)';
+            }
+        }
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && document.body.classList.contains('fullscreen')) toggleFullscreen();
+        });
+
+        function switchTab(index) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+            document.querySelectorAll('.tab')[index].classList.add('active');
+            document.querySelectorAll('.tab-content')[index].classList.add('active');
+        }
+
+        function setLog(text) {
+            document.getElementById('output-log').textContent = text;
+            const el = document.getElementById('output-log');
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function appendLog(text) {
+            const el = document.getElementById('output-log');
+            el.textContent = (el.textContent || '') + text;
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function setRunState(state) {
+            const badge = document.getElementById('run-state-badge');
+            badge.textContent = state;
+        }
+
+        function renderParamSummary(params) {
+            const keys = Object.keys(params || {});
+            document.getElementById('param-summary').textContent = `Captured ${keys.length} params (click to expand)`;
+            document.getElementById('param-json').textContent = JSON.stringify(params || {}, null, 2);
+        }
+
+        function startProgress(stepId, params) {
+            stopProgress();
+            RUN_T0 = Date.now();
+            document.getElementById('progress-wrap').style.display = 'block';
+            document.getElementById('progress-fill').style.width = '0%';
+            document.getElementById('progress-left').textContent = `Starting…`;
+            document.getElementById('progress-right').textContent = 'Elapsed: 0s';
+            setRunState('Running');
+
+            RUN_TIMER = setInterval(() => {
+                const elapsed = Date.now() - RUN_T0;
+                document.getElementById('progress-right').textContent = `Elapsed: ${Math.round(elapsed/1000)}s`;
+            }, 250);
+        }
+
+        function stopProgress(ok) {
+            if (RUN_TIMER) clearInterval(RUN_TIMER);
+            RUN_TIMER = null;
+            RUN_T0 = null;
+            RUN_EST_MS = null;
+            document.getElementById('progress-wrap').style.display = 'none';
+            if (ok === true) setRunState('Done');
+            else if (ok === false) setRunState('Failed');
+            else setRunState('Idle');
+        }
+
+        function renderParam(container, spec) {
+            const wrap = document.createElement('div');
+            wrap.className = 'input-group';
+
+            const label = document.createElement('label');
+            label.textContent = spec.label || spec.key;
+            wrap.appendChild(label);
+
+            if (spec.description) {
+                const desc = document.createElement('div');
+                desc.textContent = spec.description;
+                desc.style.cssText = 'font-size:11px; color:#888; margin:-2px 0 4px 0; line-height:1.3;';
+                wrap.appendChild(desc);
+            }
+
+            let el = null;
+            if (spec.type === 'select') {
+                el = document.createElement('select');
+                (spec.options || []).forEach(opt => {
+                    const o = document.createElement('option');
+                    if (typeof opt === 'string') {
+                        o.value = opt;
+                        o.textContent = opt;
+                    } else {
+                        o.value = opt.value;
+                        o.textContent = opt.label || opt.value;
+                    }
+                    el.appendChild(o);
+                });
+                if (spec.default !== undefined) el.value = spec.default;
+            } else if (spec.type === 'file') {
+                el = document.createElement('input');
+                el.type = 'file';
+                el.accept = spec.accept || '*';
+            } else if (spec.type === 'dir') {
+                // Render as: Choose button + readonly display (no typing required)
+                const row = document.createElement('div');
+                row.style.display = 'flex';
+                row.style.gap = '8px';
+                row.style.alignItems = 'center';
+
+                // hidden input holds the actual value for submission
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                if (spec.default !== undefined && spec.default !== null) input.value = spec.default;
+                input.dataset.key = spec.key;
+                input.dataset.type = 'dir';
+
+                const display = document.createElement('div');
+                display.style.flex = '1';
+                display.style.padding = '10px';
+                display.style.border = '1px solid #ddd';
+                display.style.borderRadius = '4px';
+                display.style.background = '#fff';
+                display.style.fontSize = '0.9em';
+                display.style.color = '#333';
+                display.style.overflow = 'hidden';
+                display.style.textOverflow = 'ellipsis';
+                display.style.whiteSpace = 'nowrap';
+                display.dataset.displayFor = spec.key;
+                display.textContent = input.value ? input.value : '(not selected)';
+
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-secondary';
+                btn.type = 'button';
+                btn.style.width = 'auto';
+                btn.style.padding = '10px 12px';
+                btn.textContent = 'Choose folder…';
+                btn.onclick = () => openDirModal(spec.key, input.value || null);
+
+                row.appendChild(display);
+                row.appendChild(btn);
+                wrap.appendChild(row);
+                wrap.appendChild(input);
+                container.appendChild(wrap);
+                return;
+            } else if (spec.type === 'boolean') {
+                el = document.createElement('select');
+                const o1 = document.createElement('option'); o1.value = 'true'; o1.textContent = 'true';
+                const o2 = document.createElement('option'); o2.value = 'false'; o2.textContent = 'false';
+                el.appendChild(o1); el.appendChild(o2);
+                el.value = (spec.default === true) ? 'true' : 'false';
+            } else {
+                el = document.createElement('input');
+                el.type = (spec.type === 'number') ? 'number' : 'text';
+                if (spec.default !== undefined) el.value = spec.default;
+                if (spec.step !== undefined) el.step = spec.step;
+                if (spec.min !== undefined) el.min = spec.min;
+                if (spec.max !== undefined) el.max = spec.max;
+            }
+
+            el.dataset.key = spec.key;
+            el.dataset.type = spec.type || 'text';
+
+            if (spec.sync) {
+                el.dataset.sync = spec.sync;
+                if (SYNCED_VALUES[spec.sync] !== undefined) el.value = SYNCED_VALUES[spec.sync];
+                el.addEventListener('input', () => onSyncedChange(spec.sync, el.value));
+            }
+
+            wrap.appendChild(el);
+
+            if (spec.unit) {
+                const small = document.createElement('div');
+                small.style.color = '#666';
+                small.style.fontSize = '0.85em';
+                small.style.marginTop = '4px';
+                small.textContent = `Unit: ${spec.unit}`;
+                wrap.appendChild(small);
+            }
+
+            container.appendChild(wrap);
+        }
+
+        // Tracks the user-selected method/model per step so it persists across re-renders
+        const _selectedMethod = {};
+
+        function renderSchema(schema) {
+            const e = document.getElementById('essential-params');
+            const a = document.getElementById('advanced-params');
+
+            if (schema && schema.methods && schema.common) {
+                const methodKeys = Object.keys(schema.methods);
+
+                // Capture current selector value before clearing DOM
+                const oldSel = e.querySelector('select[data-key]');
+                if (oldSel && methodKeys.includes(oldSel.value)) {
+                    _selectedMethod[ACTIVE_STEP_ID] = oldSel.value;
+                }
+
+                e.innerHTML = '';
+                a.innerHTML = '';
+
+                const commonEss = (schema.common.essential || []);
+                const commonAdv = (schema.common.advanced || []);
+
+                commonEss.forEach(p => renderParam(e, p));
+                commonAdv.forEach(p => renderParam(a, p));
+
+                // Find the newly rendered selector and restore saved value
+                let selectorEl = null;
+                for (const mk of methodKeys) {
+                    const optEl = e.querySelector(`option[value="${mk}"]`);
+                    if (optEl) { selectorEl = optEl.closest('select'); break; }
+                }
+
+                if (selectorEl && _selectedMethod[ACTIVE_STEP_ID]) {
+                    selectorEl.value = _selectedMethod[ACTIVE_STEP_ID];
+                }
+
+                const selectedKey = (selectorEl && selectorEl.value) || methodKeys[0] || '';
+                const m = schema.methods[selectedKey] || {};
+
+                (m.essential || []).forEach(p => renderParam(e, p));
+                (m.advanced || []).forEach(p => renderParam(a, p));
+
+                if (selectorEl) {
+                    selectorEl.addEventListener('change', () => {
+                        _selectedMethod[ACTIVE_STEP_ID] = selectorEl.value;
+                        renderSchema(schema);
+                    });
+                }
+                return;
+            }
+
+            e.innerHTML = '';
+            a.innerHTML = '';
+            (schema.essential || []).forEach(p => renderParam(e, p));
+            (schema.advanced || []).forEach(p => renderParam(a, p));
+        }
+
+        function collectParams() {
+            const params = {};
+            document.querySelectorAll('[data-key]').forEach(el => {
+                const k = el.dataset.key;
+                const t = el.dataset.type;
+                if (t === 'file') {
+                    // uploaded separately
+                    params[k] = null;
+                } else if (t === 'dir') {
+                    params[k] = (el.value === '') ? null : el.value;
+                } else if (t === 'number') {
+                    params[k] = (el.value === '') ? null : Number(el.value);
+                } else if (t === 'boolean') {
+                    params[k] = (el.value === 'true');
+                } else {
+                    params[k] = (el.value === '') ? null : el.value;
+                }
+            });
+            return params;
+        }
+
+        async function uploadSelectedFiles(params) {
+            const fileInputs = Array.from(document.querySelectorAll('input[type="file"][data-key]'));
+            for (const input of fileInputs) {
+                if (!input.files || input.files.length === 0) continue;
+                const k = input.dataset.key;
+                const fd = new FormData();
+                fd.append('file', input.files[0]);
+                const r = await fetch('/api/upload', { method: 'POST', body: fd });
+                const data = await r.json();
+                if (!data.path) throw new Error('Upload failed: missing path');
+                params[k] = data.path;
+            }
+            return params;
+        }
+
+        async function openDirModal(key, startPath) {
+            DIR_MODAL_KEY = key;
+            const modal = document.getElementById('dir-modal');
+            modal.classList.add('active');
+            await loadDirListing(startPath);
+        }
+
+        function closeDirModal() {
+            const modal = document.getElementById('dir-modal');
+            modal.classList.remove('active');
+            DIR_MODAL_KEY = null;
+        }
+
+        async function loadDirListing(path) {
+            const url = path ? `/api/fs/list?path=${encodeURIComponent(path)}` : '/api/fs/list';
+            const r = await fetch(url);
+            const data = await r.json();
+            DIR_MODAL_PATH = data.path;
+            DIR_MODAL_ROOT = data.root;
+            document.getElementById('dir-current').textContent = data.path;
+
+            const list = document.getElementById('dir-list');
+            list.innerHTML = '';
+            (data.dirs || []).forEach(d => {
+                const item = document.createElement('div');
+                item.className = 'dir-item';
+                item.onclick = () => loadDirListing(d.path);
+
+                const name = document.createElement('div');
+                name.className = 'name';
+                name.textContent = `📁 ${d.name}`;
+
+                const p = document.createElement('div');
+                p.className = 'path';
+                p.textContent = d.path;
+
+                item.appendChild(name);
+                item.appendChild(p);
+
+                // Select button
+                const pick = document.createElement('button');
+                pick.className = 'btn btn-primary';
+                pick.type = 'button';
+                pick.style.width = 'auto';
+                pick.style.padding = '8px 10px';
+                pick.textContent = 'Select';
+                pick.onclick = (e) => {
+                    e.stopPropagation();
+                    const input = document.querySelector(`[data-key=\"${DIR_MODAL_KEY}\"]`);
+                    if (input) input.value = d.path;
+                    const disp = document.querySelector(`[data-display-for=\"${DIR_MODAL_KEY}\"]`);
+                    if (disp) disp.textContent = d.path;
+                    closeDirModal();
+                };
+                item.appendChild(pick);
+
+                list.appendChild(item);
+            });
+
+            // Also allow selecting current directory
+            const currentPick = document.createElement('button');
+            currentPick.className = 'btn btn-primary';
+            currentPick.type = 'button';
+            currentPick.style.width = '100%';
+            currentPick.style.marginTop = '10px';
+            currentPick.textContent = `Select current folder: ${data.path}`;
+            currentPick.onclick = () => {
+                const input = document.querySelector(`[data-key=\"${DIR_MODAL_KEY}\"]`);
+                if (input) input.value = data.path;
+                const disp = document.querySelector(`[data-display-for=\"${DIR_MODAL_KEY}\"]`);
+                if (disp) disp.textContent = data.path;
+                closeDirModal();
+            };
+            list.appendChild(currentPick);
+        }
+
+        function dirUp() {
+            if (!DIR_MODAL_PATH) return;
+            // server returns safe path; use parent by trimming one level if possible
+            const parts = DIR_MODAL_PATH.split('/').filter(Boolean);
+            if (parts.length <= 1) return;
+            const up = '/' + parts.slice(0, -1).join('/');
+            loadDirListing(up);
+        }
+
+        async function loadSteps() {
+            const r = await fetch('/api/steps');
+            const data = await r.json();
+            STEPS = data.steps || [];
+
+            // Bind the top workflow buttons dynamically so UI stays in sync with schema.
+            // Expected order is the schema order from the API (distortion, tracking, inverse).
+            const wf = [
+                document.getElementById('wf-step-0'),
+                document.getElementById('wf-step-1'),
+                document.getElementById('wf-step-2'),
+            ];
+            wf.forEach((el, idx) => {
+                const step = STEPS[idx];
+                if (!el || !step) return;
+                el.dataset.stepId = step.id;
+                const titleEl = el.querySelector('.step-title');
+                if (titleEl) titleEl.textContent = step.title || step.id;
+                el.style.cursor = 'pointer';
+                el.setAttribute('tabindex', '0');
+                el.setAttribute('role', 'button');
+                el.setAttribute('aria-label', `Select step ${step.title || step.id}`);
+                el.onclick = () => selectStep(step.id);
+                el.onkeydown = (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        selectStep(step.id);
+                    }
+                };
+            });
+        }
+
+        async function selectStep(stepId) {
+            ACTIVE_STEP_ID = stepId;
+
+            // UI workflow highlight
+            const steps = document.querySelectorAll('.workflow-steps .step');
+            steps.forEach(s => s.classList.remove('active'));
+            const idx = (stepId === 'distortion') ? 0 : (stepId === 'tracking') ? 1 : 2;
+            steps[idx].classList.add('active');
+
+            const r = await fetch(`/api/steps/${stepId}`);
+            const schema = await r.json();
+            ACTIVE_SCHEMA = schema;
+
+            document.getElementById('schema-json').textContent = JSON.stringify(schema, null, 2);
+            document.getElementById('output-title').textContent = `Output: ${schema.title || stepId}`;
+            document.getElementById('essential-title').textContent = `Essential Parameters — ${schema.title || stepId}`;
+            document.getElementById('advanced-title').textContent = `⚙️ Advanced Parameters — ${schema.title || stepId}`;
+            renderSchema(schema);
+            setLog(`Loaded schema for '${stepId}'.`);
+
+            // Keep the params section visible when switching steps
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar) sidebar.scrollTop = 0;
+        }
+
+        async function runSelectedStep() {
+            if (!ACTIVE_STEP_ID) return;
+            let params = collectParams();
+            renderParamSummary(params);
+            setLog(`Preparing '${ACTIVE_STEP_ID}'… uploading files if needed.\n`);
+            setRunState('Preparing');
+            startProgress(ACTIVE_STEP_ID, params);
+            // yield to browser so it paints the status immediately
+            await new Promise(r => setTimeout(r, 0));
+
+            params = await uploadSelectedFiles(params);
+            setLog(`Starting '${ACTIVE_STEP_ID}'… submitting job.\n`);
+
+            const r = await fetch(`/api/run_async/${ACTIVE_STEP_ID}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ params })
+            });
+            const start = await r.json();
+            setLog(`Job ${start.job_id} submitted. Waiting for output…\n`);
+            await pollJob(start.job_id, ACTIVE_STEP_ID, params);
+        }
+
+        async function runFromHerePipeline() {
+            if (!ACTIVE_STEP_ID) return;
+            let params = collectParams();
+            renderParamSummary(params);
+            setLog(`Preparing pipeline from '${ACTIVE_STEP_ID}'… uploading files if needed.\n`);
+            setRunState('Preparing');
+            startProgress(ACTIVE_STEP_ID, params);
+            await new Promise(r => setTimeout(r, 0));
+
+            params = await uploadSelectedFiles(params);
+            setLog(`Starting pipeline from '${ACTIVE_STEP_ID}'… submitting job.\n`);
+
+            const r = await fetch(`/api/run_pipeline_async`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    start_step_id: ACTIVE_STEP_ID,
+                    params_by_step: {
+                        [ACTIVE_STEP_ID]: params
+                    }
+                })
+            });
+            const start = await r.json();
+            setLog(`Job ${start.job_id} submitted. Waiting for output…\n`);
+            await pollJob(start.job_id, ACTIVE_STEP_ID, params);
+        }
+
+        async function pollJob(jobId, stepId, params) {
+            const totalIters = Number(params && params.num_iter) || null;
+            let lastIter = 0;
+            let lastT = Date.now();
+
+            while (true) {
+                const r = await fetch(`/api/jobs/${jobId}`);
+                const j = await r.json();
+
+                // show live log + status
+                setRunState(j.status || 'running');
+                document.getElementById('output-log').textContent = j.log || '';
+                const logEl = document.getElementById('output-log');
+                logEl.scrollTop = logEl.scrollHeight;
+
+                // progress
+                const prog = (j.progress || {});
+                const it = Number(prog.iter || 0);
+                const tot = Number(prog.total || totalIters || 0);
+                if (it && tot) {
+                    const pct = Math.min(100, Math.max(0, Math.round((it / tot) * 100)));
+                    document.getElementById('progress-fill').style.width = `${pct}%`;
+
+                    const elapsed = (Date.now() - RUN_T0) / 1000.0;
+                    const rate = it > 0 ? (elapsed / it) : null; // sec/iter
+                    const eta = rate ? Math.max(0, Math.round((tot - it) * rate)) : null;
+
+                    document.getElementById('progress-left').textContent =
+                        `Iter: ${it}/${tot} (${pct}%)` + (eta !== null ? ` | ETA: ~${eta}s` : '');
+
+                    // small smoothing guard (unused now, but keeps future extension easy)
+                    if (it !== lastIter) {
+                        lastIter = it;
+                        lastT = Date.now();
+                    }
+                } else {
+                    document.getElementById('progress-left').textContent = `Running… (no progress reported yet)`;
+                }
+
+                if (j.status === 'done' || j.status === 'failed') {
+                    stopProgress(j.status === 'done');
+                    return;
+                }
+                await new Promise(res => setTimeout(res, 500));
+            }
+        }
+
+        async function loadSchemaDebug() {
+            await loadSteps();
+            if (!ACTIVE_STEP_ID && STEPS.length) {
+                await selectStep(STEPS[0].id);
+            } else if (ACTIVE_STEP_ID) {
+                await selectStep(ACTIVE_STEP_ID);
+            }
+        }
+
+        window.onload = async function() {
+            await loadSchemaDebug();
+        };
+    </script>
+</body>
+</html>
+

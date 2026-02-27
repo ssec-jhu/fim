@@ -1,0 +1,600 @@
+{
+  "version": "1",
+  "steps": {
+    "distortion": {
+      "title": "Distortion",
+      "script": "legacy/run_distortion.py",
+      "essential": [
+        {
+          "key": "with_sphere",
+          "label": "Deformed image (with sphere)",
+          "description": "3D TIFF stack captured with the sphere present",
+          "type": "file",
+          "accept": ".tif,.tiff"
+        },
+        {
+          "key": "without_sphere",
+          "label": "Reference image (without sphere)",
+          "description": "3D TIFF stack of the undeformed sample",
+          "type": "file",
+          "accept": ".tif,.tiff"
+        },
+        {
+          "key": "dxy_um",
+          "label": "Voxel size XY",
+          "description": "Physical pixel spacing in X and Y directions",
+          "type": "number",
+          "default": 0.492,
+          "step": 0.01,
+          "unit": "\u00b5m",
+          "sync": "dxy_um"
+        },
+        {
+          "key": "dz_um",
+          "label": "Voxel size Z",
+          "description": "Physical spacing between Z slices",
+          "type": "number",
+          "default": 3.0,
+          "step": 0.01,
+          "unit": "\u00b5m",
+          "sync": "dz_um"
+        },
+        {
+          "key": "sphere_diameter_mm",
+          "label": "Sphere diameter",
+          "description": "Diameter of the calibration sphere used for distortion correction",
+          "type": "number",
+          "default": 0.5,
+          "step": 0.1,
+          "unit": "mm"
+        }
+      ],
+      "advanced": [
+        {
+          "key": "n_medium",
+          "label": "Material refractive index",
+          "description": "Refractive index of the surrounding gel/medium",
+          "type": "number",
+          "default": 1.4,
+          "step": 0.01
+        },
+        {
+          "key": "n_sphere",
+          "label": "Sphere refractive index",
+          "description": "Refractive index of the calibration sphere",
+          "type": "number",
+          "default": 1.5,
+          "step": 0.01
+        }
+      ]
+    },
+    "tracking": {
+      "title": "Tracking",
+      "script": "github/fim/fim/refactor/deformation_tracking.py",
+      "common": {
+        "essential": [
+          {
+            "key": "with_sphere",
+            "label": "Deformed image (with sphere)",
+            "description": "3D TIFF stack captured with the indenter pressing into the sample",
+            "type": "file",
+            "accept": ".tif,.tiff",
+            "default": "DEFAULT_WITH_SPHERE"
+          },
+          {
+            "key": "without_sphere",
+            "label": "Reference image (without sphere)",
+            "description": "3D TIFF stack of the undeformed sample (no indenter)",
+            "type": "file",
+            "accept": ".tif,.tiff",
+            "default": "DEFAULT_WITHOUT_SPHERE"
+          },
+          {
+            "key": "out_dir",
+            "label": "Output folder",
+            "description": "Directory where Ux/Uy/Uz displacement fields and metadata are saved",
+            "type": "dir",
+            "default": "./fim/legacy/output/deformation-tracking"
+          },
+          {
+            "key": "method",
+            "label": "Tracking method",
+            "description": "Algorithm used to reconstruct the 3D displacement field",
+            "type": "select",
+            "default": "physics",
+            "options": [
+              {
+                "value": "physics",
+                "label": "Optimization (Gradient-based)"
+              },
+              {
+                "value": "ml_pretrained",
+                "label": "ML (Pretrained) \u2014 placeholder"
+              },
+              {
+                "value": "ml_train",
+                "label": "ML (Train) \u2014 placeholder"
+              }
+            ]
+          },
+          {
+            "key": "dxy_um",
+            "label": "Voxel size XY",
+            "description": "Physical pixel spacing in X and Y directions (synced with Step 1)",
+            "type": "number",
+            "default": 0.492,
+            "step": 0.01,
+            "unit": "\u00b5m",
+            "sync": "dxy_um"
+          },
+          {
+            "key": "dz_um",
+            "label": "Voxel size Z",
+            "description": "Physical spacing between Z slices (synced with Step 1)",
+            "type": "number",
+            "default": 3.0,
+            "step": 0.01,
+            "unit": "\u00b5m",
+            "sync": "dz_um"
+          }
+        ],
+        "advanced": [
+          {
+            "key": "downsamp_xy",
+            "label": "Image downsample (XY)",
+            "description": "Factor to reduce input image resolution in X/Y before optimization",
+            "type": "number",
+            "default": 2,
+            "step": 1,
+            "min": 1
+          },
+          {
+            "key": "downsamp_z",
+            "label": "Image downsample (Z)",
+            "description": "Factor to reduce input image resolution in Z before optimization",
+            "type": "number",
+            "default": 1,
+            "step": 1,
+            "min": 1
+          },
+          {
+            "key": "z_start",
+            "label": "Z crop start",
+            "description": "First Z-slice index to include (0-based). Use to discard top slices.",
+            "type": "number",
+            "default": 0,
+            "step": 1,
+            "min": 0
+          },
+          {
+            "key": "z_end",
+            "label": "Z crop end (exclusive)",
+            "description": "Last Z-slice index (exclusive). Leave empty to include all slices.",
+            "type": "number",
+            "default": null,
+            "step": 1,
+            "min": 1
+          },
+          {
+            "key": "device",
+            "label": "Device",
+            "description": "Hardware for optimization: auto detects GPU if available",
+            "type": "select",
+            "default": "auto",
+            "options": [
+              "auto",
+              "cpu",
+              "cuda"
+            ]
+          },
+          {
+            "key": "output_downsample_xy",
+            "label": "Output downsample (XY)",
+            "description": "Downsample final displacement field in X/Y before saving (1 = full resolution)",
+            "type": "number",
+            "default": 10,
+            "step": 1,
+            "min": 1
+          },
+          {
+            "key": "output_downsample_z",
+            "label": "Output downsample (Z)",
+            "description": "Downsample final displacement field in Z before saving (1 = full resolution)",
+            "type": "number",
+            "default": 3,
+            "step": 1,
+            "min": 1
+          },
+          {
+            "key": "upsample_order",
+            "label": "Upsample interpolation order",
+            "description": "Interpolation method when upsampling coarse deformation to full resolution",
+            "type": "select",
+            "default": 3,
+            "options": [
+              {
+                "value": "1",
+                "label": "1 \u2014 Linear"
+              },
+              {
+                "value": "2",
+                "label": "2 \u2014 Quadratic"
+              },
+              {
+                "value": "3",
+                "label": "3 \u2014 Cubic (legacy)"
+              }
+            ]
+          },
+          {
+            "key": "smooth_method",
+            "label": "Output smoothing",
+            "description": "Post-processing filter applied to final Ux/Uy/Uz fields",
+            "type": "select",
+            "default": "none",
+            "options": [
+              {"value": "none", "label": "None"},
+              {"value": "gaussian", "label": "Gaussian (low-pass)"},
+              {"value": "laplacian", "label": "Laplacian (diffusion)"}
+            ]
+          },
+          {
+            "key": "smooth_sigma",
+            "label": "Smoothing strength",
+            "description": "Sigma for Gaussian, or diffusion strength for Laplacian (typical 0.5\u20135.0)",
+            "type": "number",
+            "default": 1.0,
+            "step": 0.5,
+            "min": 0.5
+          },
+          {
+            "key": "lr_shift",
+            "label": "LR: global shift",
+            "description": "Learning rate for the global rigid-body translation",
+            "type": "number",
+            "default": 0.05
+          },
+          {
+            "key": "lr_axis",
+            "label": "LR: rotation axis",
+            "description": "Learning rate for rotation axis direction",
+            "type": "number",
+            "default": 0.001
+          },
+          {
+            "key": "lr_angle",
+            "label": "LR: rotation angle",
+            "description": "Learning rate for rotation angle magnitude",
+            "type": "number",
+            "default": 1e-05
+          },
+          {
+            "key": "lr_deform",
+            "label": "LR: deformation",
+            "description": "Learning rate for the local deformation field",
+            "type": "number",
+            "default": 0.1
+          }
+        ]
+      },
+      "methods": {
+        "physics": {
+          "title": "Optimization (Gradient-based)",
+          "essential": [],
+          "advanced": [
+            {
+              "key": "num_iter",
+              "label": "Iterations",
+              "description": "Total number of optimization iterations",
+              "type": "number",
+              "default": 1001,
+              "step": 100,
+              "min": 100
+            },
+            {
+              "key": "batch_size",
+              "label": "Batch size",
+              "description": "Random voxels sampled per iteration (higher = more stable, slower)",
+              "type": "number",
+              "default": 500000,
+              "step": 10000,
+              "min": 10000
+            },
+            {
+              "key": "TV2_reg",
+              "label": "TV\u00b2 regularization",
+              "description": "Smoothness penalty on deformation field (0 = off, higher = smoother)",
+              "type": "number",
+              "default": 30,
+              "step": 1,
+              "min": 0
+            },
+            {
+              "key": "deform_downsample_factor_xy",
+              "label": "Deformation downsample (XY)",
+              "description": "Coarse grid factor in X/Y for deformation field (higher = fewer DOFs)",
+              "type": "number",
+              "default": 10,
+              "step": 1,
+              "min": 1
+            },
+            {
+              "key": "deform_downsample_factor_z",
+              "label": "Deformation downsample (Z)",
+              "description": "Coarse grid factor in Z for deformation field",
+              "type": "number",
+              "default": 8,
+              "step": 1,
+              "min": 1
+            },
+            {
+              "key": "lock_global_shift",
+              "label": "Lock global shift",
+              "description": "Freeze the global rigid-body translation after initial estimate",
+              "type": "boolean",
+              "default": null
+            },
+            {
+              "key": "indentation_constraint",
+              "label": "Penalize positive Uz",
+              "description": "Add penalty to discourage upward displacement under the indenter",
+              "type": "boolean",
+              "default": null
+            },
+            {
+              "key": "Uz_penalty_weight",
+              "label": "Uz penalty weight",
+              "description": "Strength of the positive-Uz penalty (only active when enabled above)",
+              "type": "number",
+              "default": 0.0,
+              "step": 0.5,
+              "min": 0
+            },
+            {
+              "key": "progress_every",
+              "label": "Progress interval",
+              "description": "Report progress to UI every N iterations",
+              "type": "number",
+              "default": 100,
+              "step": 100,
+              "min": 1
+            }
+          ]
+        },
+        "ml_pretrained": {
+          "title": "ML (Pretrained) \u2014 placeholder",
+          "essential": [
+            {
+              "key": "model_path",
+              "label": "Model path",
+              "description": "Path to a pre-trained ML model checkpoint",
+              "type": "text",
+              "default": ""
+            }
+          ],
+          "advanced": [
+            {
+              "key": "confidence",
+              "label": "Confidence threshold",
+              "description": "Minimum prediction confidence to accept (0\u20131)",
+              "type": "number",
+              "default": 0.6,
+              "step": 0.01,
+              "min": 0,
+              "max": 1
+            }
+          ]
+        },
+        "ml_train": {
+          "title": "ML (Train) \u2014 placeholder",
+          "essential": [
+            {
+              "key": "epochs",
+              "label": "Training epochs",
+              "description": "Number of full passes through the training data",
+              "type": "number",
+              "default": 50,
+              "step": 10,
+              "min": 1
+            }
+          ],
+          "advanced": [
+            {
+              "key": "ml_lr",
+              "label": "Learning rate",
+              "description": "Step size for the ML training optimizer",
+              "type": "number",
+              "default": 0.001,
+              "step": 0.0001,
+              "min": 0
+            }
+          ]
+        }
+      }
+    },
+    "inverse": {
+      "title": "Inverse Modeling",
+      "script": "github/fim/fim/refactor/main_VFM.py",
+      "common": {
+        "essential": [
+          {
+            "key": "model",
+            "label": "Material model",
+            "description": "Constitutive model used to relate stress and strain",
+            "type": "select",
+            "default": "linear",
+            "options": [
+              {
+                "value": "linear",
+                "label": "Linear (Transversely Isotropic)"
+              },
+              {
+                "value": "hgo",
+                "label": "HGO (Holzapfel-Gasser-Ogden)"
+              },
+              {
+                "value": "nh",
+                "label": "Neo-Hookean"
+              }
+            ]
+          },
+          {
+            "key": "data_path",
+            "label": "VFM data folder",
+            "description": "Folder containing Ux/Uy/Uz.npy from the tracking step",
+            "type": "dir",
+            "default": null
+          },
+          {
+            "key": "force_n",
+            "label": "Applied force",
+            "description": "Indentation force applied by the sphere",
+            "type": "number",
+            "default": 4.18e-05,
+            "step": 1e-06,
+            "unit": "N"
+          }
+        ],
+        "advanced": []
+      },
+      "methods": {
+        "linear": {
+          "title": "Linear (Transversely Isotropic)",
+          "essential": [
+            {
+              "key": "E1_init",
+              "label": "E1 initial guess",
+              "description": "Starting value for axial Young's modulus",
+              "type": "number",
+              "default": 15000,
+              "unit": "Pa"
+            },
+            {
+              "key": "E2_init",
+              "label": "E2 initial guess",
+              "description": "Starting value for transverse Young's modulus",
+              "type": "number",
+              "default": 15000,
+              "unit": "Pa"
+            },
+            {
+              "key": "v12",
+              "label": "Poisson ratio v12",
+              "description": "Poisson ratio in the 1-2 plane (axial-transverse)",
+              "type": "number",
+              "default": 0.49,
+              "step": 0.01
+            },
+            {
+              "key": "v23",
+              "label": "Poisson ratio v23",
+              "description": "Poisson ratio in the 2-3 plane (transverse-transverse)",
+              "type": "number",
+              "default": 0.49,
+              "step": 0.01
+            },
+            {
+              "key": "Gt",
+              "label": "Shear modulus Gt",
+              "description": "Transverse shear modulus",
+              "type": "number",
+              "default": 500,
+              "unit": "Pa"
+            },
+            {
+              "key": "mesh_file",
+              "label": "Mesh file (.inp)",
+              "description": "Optional .inp mesh file for precise L/W/H. If blank, computed from grids.",
+              "type": "text",
+              "default": null
+            }
+          ],
+          "advanced": []
+        },
+        "hgo": {
+          "title": "HGO (Holzapfel-Gasser-Ogden)",
+          "essential": [
+            {
+              "key": "C10_init",
+              "label": "C10 initial guess",
+              "description": "Isotropic ground matrix stiffness",
+              "type": "number",
+              "default": 500,
+              "unit": "Pa"
+            },
+            {
+              "key": "D1_init",
+              "label": "D1 initial guess",
+              "description": "Compressibility parameter (lower = more incompressible)",
+              "type": "number",
+              "default": 1e-05,
+              "step": 1e-06
+            },
+            {
+              "key": "k1",
+              "label": "Fiber stiffness k1",
+              "description": "Stiffness of embedded collagen fibers",
+              "type": "number",
+              "default": 2000,
+              "unit": "Pa"
+            },
+            {
+              "key": "k2",
+              "label": "Fiber nonlinearity k2",
+              "description": "Exponential stiffening parameter for fibers",
+              "type": "number",
+              "default": 5
+            },
+            {
+              "key": "kappa_init",
+              "label": "Kappa initial guess",
+              "description": "Fiber dispersion (0 = perfectly aligned, 1/3 = isotropic)",
+              "type": "number",
+              "default": 0.05,
+              "step": 0.01,
+              "min": 0,
+              "max": 0.33
+            },
+            {
+              "key": "mesh_file",
+              "label": "Mesh file (.inp)",
+              "description": "Optional .inp mesh file for precise L/W/H. If blank, computed from grids.",
+              "type": "text",
+              "default": null
+            }
+          ],
+          "advanced": []
+        },
+        "nh": {
+          "title": "Neo-Hookean",
+          "essential": [
+            {
+              "key": "C10_init",
+              "label": "C10 initial guess",
+              "description": "Shear modulus of the isotropic hyperelastic material",
+              "type": "number",
+              "default": 253.65,
+              "unit": "Pa"
+            },
+            {
+              "key": "D1_init",
+              "label": "D1 initial guess",
+              "description": "Compressibility parameter (lower = more incompressible)",
+              "type": "number",
+              "default": 7.6e-04,
+              "step": 1e-06
+            },
+            {
+              "key": "mesh_file",
+              "label": "Mesh file (.inp)",
+              "description": "Optional .inp mesh file for precise L/W/H. If blank, computed from grids.",
+              "type": "text",
+              "default": null
+            }
+          ],
+          "advanced": []
+        }
+      }
+    }
+  }
+}
