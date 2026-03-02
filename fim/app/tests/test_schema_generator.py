@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import json
 import textwrap
-from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 from fim.app.schema_generator import (
     ArgSpec,
@@ -303,7 +300,7 @@ class TestSyncStepParams:
             "advanced": [],
         }
         scanned = {"x": ArgSpec(key="x", type="select", options=["a"])}
-        msgs = sync_step_params(step, scanned)
+        sync_step_params(step, scanned)
         assert len(step["essential"][0]["options"]) == 1
 
     def test_methods_without_matching_select(self):
@@ -313,7 +310,7 @@ class TestSyncStepParams:
             "methods": {"m1": {"essential": [], "advanced": []}},
         }
         scanned = {}
-        msgs = sync_step_params(step, scanned)
+        sync_step_params(step, scanned)
         assert "m1" in step["methods"]
 
 

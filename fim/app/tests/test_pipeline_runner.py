@@ -3,10 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from fim.app.pipeline_runner import (
-    PipelineResult,
     RunResult,
     _as_cli_args,
     _propagate_tracking_output,

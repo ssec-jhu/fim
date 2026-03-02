@@ -3,8 +3,6 @@ from __future__ import annotations
 import time
 from unittest.mock import patch
 
-import pytest
-
 from fim.app.jobs import _PROG_RE, JobManager, JobState
 from fim.app.pipeline_runner import PipelineResult, RunResult
 from fim.app.steps_registry import StepSpec
