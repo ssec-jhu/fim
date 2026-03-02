@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from fim.app.jobs import JobManager, JobState, _PROG_RE
+from fim.app.jobs import _PROG_RE, JobManager, JobState
 from fim.app.pipeline_runner import PipelineResult, RunResult
 from fim.app.steps_registry import StepSpec
 
@@ -100,9 +100,7 @@ class TestJobManager:
 
     @patch("fim.app.jobs.run_step_streaming")
     def test_start_step_failure(self, mock_stream):
-        mock_stream.return_value = RunResult(
-            ok=False, returncode=1, stdout="", stderr="error\n", command=["python"]
-        )
+        mock_stream.return_value = RunResult(ok=False, returncode=1, stdout="", stderr="error\n", command=["python"])
         mgr = JobManager()
         mgr.create("j2")
         step = _make_step("inverse")
@@ -118,7 +116,9 @@ class TestJobManager:
 
     @patch("fim.app.jobs.run_step_streaming")
     def test_start_step_with_progress(self, mock_stream):
-        def streaming_with_callback(step, params, *, on_stdout=None, on_stderr=None, env_overrides=None, extra_cli_args=None):
+        def streaming_with_callback(
+            step, params, *, on_stdout=None, on_stderr=None, env_overrides=None, extra_cli_args=None
+        ):
             if on_stdout:
                 on_stdout("FIM_PROGRESS iter=3 total=10\n")
             return RunResult(ok=True, returncode=0, stdout="", stderr="", command=["cmd"])
@@ -141,9 +141,7 @@ class TestJobManager:
 
     @patch("fim.app.jobs.run_step_streaming")
     def test_start_step_early_return_captures_output(self, mock_stream):
-        mock_stream.return_value = RunResult(
-            ok=False, returncode=2, stdout="info\n", stderr="warn\n", command=[]
-        )
+        mock_stream.return_value = RunResult(ok=False, returncode=2, stdout="info\n", stderr="warn\n", command=[])
         mgr = JobManager()
         mgr.create("j4")
         step = _make_step("inverse")

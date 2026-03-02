@@ -82,9 +82,7 @@ class TestMainRun:
 
     @patch("fim.app.cli.run_step")
     def test_run_step_failure(self, mock_run, capsys):
-        mock_run.return_value = RunResult(
-            ok=False, returncode=1, stdout="", stderr="error msg\n", command=["python"]
-        )
+        mock_run.return_value = RunResult(ok=False, returncode=1, stdout="", stderr="error msg\n", command=["python"])
         rc = main(["run", "inverse"])
         assert rc == 1
         captured = capsys.readouterr()
