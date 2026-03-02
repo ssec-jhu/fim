@@ -164,17 +164,14 @@ def test_load_common_and_specific_fields(tmp_path, monkeypatch):
     assert Xo.shape == X.shape and vol_out.shape == X.shape
     assert tensor.shape[-2:] == (3, 3)
 
-    # HGO
-    _write_inp(folder / "350k.inp")
-    Xh, Yh, Zh, Th, Lh, Wh, Hh, Vh = mvf.load_hgo_fields(str(folder))
-    assert np.isclose([Lh, Wh, Hh], [1.0, 1.0, 0.5]).all()
-    assert Th.shape[-2:] == (3, 3) and Vh.shape == vol.shape
+    # _get_dimensions from coordinate grids (no mesh file)
+    Lg, Wg, Hg = mvf._get_dimensions(Xo, Yo, Zo)
+    assert Lg > 0 and Wg > 0 and Hg > 0
 
-    # NH
-    _write_inp(folder / "335k_32um.inp")
-    Xn, Yn, Zn, Tn, Ln, Wn, Hn, Vn = mvf.load_nh_fields(str(folder))
-    assert np.isclose([Ln, Wn, Hn], [1.0, 1.0, 0.5]).all()
-    assert Tn.shape[-2:] == (3, 3) and Vn.shape == vol.shape
+    # _get_dimensions from .inp mesh file
+    _write_inp(folder / "sample.inp")
+    Lm, Wm, Hm = mvf._get_dimensions(Xo, Yo, Zo, mesh_file=str(folder / "sample.inp"))
+    assert np.isclose([Lm, Wm, Hm], [1.0, 1.0, 0.5]).all()
 
 
 # =========================
@@ -245,6 +242,11 @@ def _stub_read_input_file(*a, **k):
 def test_main_block_executes_all_modes(monkeypatch, tmp_path, mode):
     ensure_fake_scipy(monkeypatch)
     monkeypatch.setattr(sys, "argv", ["prog", "--model", mode, "--data_path", str(tmp_path)])
+
+    # Create stub .npy files so os.path.exists() checks pass inside load_common_fields
+    dummy = np.zeros((3, 3, 3))
+    for name in ("X", "Y", "Z", "Ux", "Uy", "Uz", "volume_matrix"):
+        np.save(tmp_path / f"{name}.npy", dummy)
 
     # Patch heavy bits used inside __main__
     import fim.refactor.main_VFM as mvf_mod
