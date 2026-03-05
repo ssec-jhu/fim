@@ -12,13 +12,15 @@
 (OCT / confocal) image stacks of indentation experiments. The pipeline has
 three steps:
 
-1. **Deformation Tracking** — Estimate the 3D displacement field between a
+1. **Distortion Correction** — Remove optical distortions from raw image
+   volumes to obtain undistorted reference and deformed stacks. *(Can be
+   skipped if undistorted images are acquired directly, e.g. by scanning the
+   material from the bottom.)*
+2. **Deformation Tracking** — Estimate the 3D displacement field between a
    reference and deformed volume using optimization-based image registration.
-2. **Virtual Fields Method (VFM)** — Compute material properties (elastic
+3. **Virtual Fields Method (VFM)** — Compute material properties (elastic
    moduli, fiber parameters) from the displacement field using the virtual
    work principle.
-3. **Reconstruction** — (Optional) Reconstruct the deformed geometry from the
-   displacement field for visualization.
 
 A lightweight web UI and a schema-driven CLI are provided to run each step
 with dynamically rendered parameters.
