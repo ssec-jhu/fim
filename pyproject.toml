@@ -1,19 +1,29 @@
 [project]
-name = "fim"  # Replace fim with actual name (it's just a template).
+name = "fim"
 dynamic = ["version"]
 authors = [
-    {name = "Scientifc Software Engineering Center at JHU", email = "ssec@jhu.edu"},
+    {name = "Scientific Software Engineering Center at JHU", email = "ssec@jhu.edu"},
 ]
-description = ""
+description = "Full-field Indentation Measurement: 3D deformation tracking and inverse material characterization"
 readme = "README.md"
 license = {file = "LICENSE"}
 
 requires-python = ">=3.11"
 dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "scikit-image>=0.20",
+    "matplotlib>=3.7",
+    "tqdm>=4.60",
     "fastapi[all]",
+    "uvicorn[standard]>=0.30",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
+tracking = [
+    "torch>=2.0",
+]
 dev = [
     "bandit>=1.7",
     "build",
@@ -51,7 +61,7 @@ include = ["fim*"]
 exclude = ["*.tests*"]
 
 [tool.setuptools_scm]
-write_to = "fim/_version.py"  # Replace fim with actual name (it's just a template).
+write_to = "fim/_version.py"
 
 [tool.bandit]
 exclude_dirs = ["tests"]
