@@ -1,26 +1,15 @@
 name: fim_env
 channels:
+  - pytorch
   - conda-forge
   - defaults
 dependencies:
   - python>=3.11
-
-  # --- Runtime (tracking + VFM) ---
   - numpy
   - scipy
   - scikit-image
-  - matplotlib
   - tqdm
-  - pytorch
-  - torchvision
-  - torchaudio
-  # - cpuonly          # uncomment to force CPU-only PyTorch (remove for GPU/CUDA support)
+  - pytorch::pytorch
+  # - pytorch::cpuonly   # uncomment to force CPU-only PyTorch (remove for GPU/CUDA support)
   - fastapi
   - uvicorn
-  - pyyaml
-
-  # --- Dev / testing (optional) ---
-  - pytest
-  - pytest-cov
-  - jupyterlab
-  - ipywidgets
