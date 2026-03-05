@@ -2,8 +2,16 @@
 Deformation Tracking (Optimization-based)
 ========================================
 
-This script estimates a 3D displacement field U(x,y,z) that warps a *reference* (no-sphere)
-volume into a *deformed* (with-sphere) volume using gradient-based optimization.
+This script estimates a 3D displacement field u(X) that maps *reference* positions to
+*deformed* positions using gradient-based optimization on volumetric image data.
+
+Convention:  u = x_deformed - X_reference   (standard continuum mechanics)
+             F = I + grad(u)                (deformation gradient used by VFM)
+
+Internally the optimizer solves a *backward warp* (deformed → reference) to find the
+displacement that best aligns the deformed (with-sphere) volume to the reference
+(no-sphere) volume.  The output is then negated so that Ux, Uy, Uz represent the
+standard reference → deformed displacement.
 
 Design goals:
 - Minimal + clear: only core deformation prediction (no visualization / metrics / notebooks code)
@@ -12,6 +20,7 @@ Design goals:
 
 Outputs (written to --out_dir):
 - Ux.npy, Uy.npy, Uz.npy           displacement components in meters, shape (X,Y,Z)
+                                     convention: u = x_deformed - X_reference
 - X.npy, Y.npy, Z.npy              3D coordinate grids in meters, shape (X,Y,Z)
 - volume_matrix.npy                per-voxel volume weights in m^3, shape (X,Y,Z)
 
@@ -42,11 +51,11 @@ from tqdm.auto import tqdm
 # ----------------------------
 DEFAULT_WITHOUT_SPHERE = (
     "/Users/xiang/fim/Nate/Experiment_data/Isotropic Validation Experiment 2 (2025-8-7)/Experimental Data/"
-    "Exp2_EdmundSphere_DowSilicone_710_Sphere_stack.tif"
+    "Exp2_EdmundSphere_DowSilicone_710_NoSphere_stack.tif"
 )
 DEFAULT_WITH_SPHERE = (
     "/Users/xiang/fim/Nate/Experiment_data/Isotropic Validation Experiment 2 (2025-8-7)/Experimental Data/"
-    "Exp2_EdmundSphere_DowSilicone_710_NoSphere_stack.tif"
+    "Exp2_EdmundSphere_DowSilicone_710_Sphere_stack.tif"
 )
 
 
@@ -520,10 +529,13 @@ def main() -> None:
     Uy_rot_um = rot_np[1, 0] * Ux_um + rot_np[1, 1] * Uy_um + rot_np[1, 2] * Uz_um
     Uz_rot_um = rot_np[2, 0] * Ux_um + rot_np[2, 1] * Uy_um + rot_np[2, 2] * Uz_um
 
-    # Add global shift (microns), then convert to meters
-    Ux_m = (Ux_rot_um + shift_um[0]) * 1e-6
-    Uy_m = (Uy_rot_um + shift_um[1]) * 1e-6
-    Uz_m = (Uz_rot_um + shift_um[2]) * 1e-6
+    # Add global shift (microns), then convert to meters.
+    # The internal displacement maps deformed → reference (backward warp).
+    # Negate to output the standard mechanics convention: reference → deformed
+    # (u = x_deformed - X_reference), consistent with F = I + grad(u) in VFM.
+    Ux_m = -(Ux_rot_um + shift_um[0]) * 1e-6
+    Uy_m = -(Uy_rot_um + shift_um[1]) * 1e-6
+    Uz_m = -(Uz_rot_um + shift_um[2]) * 1e-6
 
     # ----------------------------
     # Optional output downsampling (after optimization)
