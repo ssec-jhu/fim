@@ -89,15 +89,15 @@ python -m fim.app.cli run tracking --set out_dir=/tmp/fim-out --set num_iter=200
 
 ```bash
 # Deformation tracking
-python fim/refactor/deformation_tracking.py \
-    --ref_dir path/to/reference_tiffs \
-    --def_dir path/to/deformed_tiffs \
+python -m fim.refactor.deformation_tracking \
+    --with_sphere path/to/deformed_tiffs \
+    --without_sphere path/to/reference_tiffs \
     --out_dir path/to/output
 
 # Virtual Fields Method
-python fim/refactor/main_VFM.py \
+python -m fim.refactor.main_VFM \
     --data_path path/to/output \
-    --material_model linear
+    --model linear
 ```
 
 ---
