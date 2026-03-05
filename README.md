@@ -1,4 +1,4 @@
-# SSEC-JHU fim
+# FIM — Full-field Indentation Measurement
 
 [![CI](https://github.com/ssec-jhu/fim/actions/workflows/ci.yml/badge.svg)](https://github.com/ssec-jhu/fim/actions/workflows/ci.yml)
 [![Documentation Status](https://readthedocs.org/projects/fim/badge/?version=latest)](https://fim.readthedocs.io/en/latest/?badge=latest)
@@ -8,99 +8,76 @@
 
 ![SSEC-JHU Logo](docs/_static/SSEC_logo_horiz_blue_1152x263.png)
 
-Base repo template to be used by all others.
+3D deformation tracking and inverse material characterization from volumetric
+(OCT / confocal) image stacks of indentation experiments. The pipeline has
+three steps:
 
-Things to do when using this template:
+1. **Deformation Tracking** — Estimate the 3D displacement field between a
+   reference and deformed volume using optimization-based image registration.
+2. **Virtual Fields Method (VFM)** — Compute material properties (elastic
+   moduli, fiber parameters) from the displacement field using the virtual
+   work principle.
+3. **Reconstruction** — (Optional) Reconstruct the deformed geometry from the
+   displacement field for visualization.
 
- * Run ```python project_setup.py```
- * Uncomment above DOI in README.md and correct ``<insert_ID_number>``.
- * Correct "description" field in .zenodo.json to reflect description of child repo.
- * Correct the ``CI Status`` badge with the correct token in the URL.
- * Import package into https://readthedocs.org/.
+A lightweight web UI and a schema-driven CLI are provided to run each step
+with dynamically rendered parameters.
 
-What's included in this template:
+---
 
- * Licence file
- * Code of Conduct
- * Build & Setup, inc. ``pip`` dependency requirements.
- * Dependabot GitHub action
- * CI for GitHub actions: lint, pytest, build & publish docker image to GitHub Packages.
- * Dockerfile.
- * Pytest example(s).
- * Githooks.
+## Quick Start
 
-# Installation, Build, & Run instructions
+### Option A: Conda (recommended)
 
-### Conda:
-
-For additional cmds see the [Conda cheat-sheet](https://docs.conda.io/projects/conda/en/4.6.0/_downloads/52a95608c49671267e40c689e0bc00ca/conda-cheatsheet.pdf).
-
- * Download and install either [miniconda](https://docs.conda.io/en/latest/miniconda.html#installing) or [anaconda](https://docs.anaconda.com/free/anaconda/install/index.html).
- * Create new environment (env) and install ``conda create -n <environment_name>``
- * Activate/switch to new env ``conda activate <environment_name>``
- * ``cd`` into repo dir.
- * Install ``python`` and ``pip`` ``conda install python=3.11 pip``
- * Install all required dependencies (assuming local dev work), there are two ways to do this
-   * If working with tox (recommended) ``pip install -r requirements/dev.txt``.
-   * If you would like to setup an environment with all requirements to run outside of tox ``pip install -r requirements/all.txt``.
-
-### Build:
-
-  #### with Docker:
-  * Download & install Docker - see [Docker install docs](https://docs.docker.com/get-docker/).
-  * ``cd`` into repo dir.
-  * Build image: ``docker build -t <image_name> .``
-
-  #### with Python ecosystem:
-  * ``cd`` into repo dir.
-  * ``conda activate <environment_name>``
-  * Build and install package in <environment_name> conda env: ``pip install .``
-  * Do the same but in dev/editable mode (changes to repo will be reflected in env installation upon python kernel restart)
-    _NOTE: This is the preferred installation method for dev work._
-    ``pip install -e .``.
-    _NOTE: If you didn't install dependencies from ``requirements/dev.txt``, you can install
-    a looser constrained set of deps using: ``pip install -e .[dev]``._
-
-### Run
-
-  #### with Docker:
-  * Follow the above [Build with Docker instructions](#with-docker).
-  * Run container from image: ``docker run -d -p 8000:8000 <image_name>``. _NOTE: ``-p 8000:8000`` is specific to the example application using port 8000._
-  * Alternatively, images can be pulled from ``ghcr.io/ssec-jhu/`` e.g., ``docker pull ghcr.io/ssec-jhu/fim:pr-1``.
-
-  #### with Python ecosystem:
-  * Follow the above [Build with Python ecosystem instructions](#with-python-ecosystem).
-  * Run ``uvicorn fim.app.main:app --host 0.0.0.0 --port", "8000``. _NOTE: This is just an example and is obviously application dependent._
-
-### Usage:
-To be completed by child repo.
-
-## FIM UI (dynamic parameters)
-
-This repo includes a lightweight web UI that **renders parameters dynamically** from
-`fim/app/schemas/fim_params.schema.json`. To add/remove parameters later, update the schema
-and you **do not need to edit UI code**.
-
-### Start the UI server
-
-Install UI dependencies:
+This is the easiest path, especially for deformation tracking which requires
+PyTorch.
 
 ```bash
-pip install -r requirements/prd.txt
+git clone https://github.com/ssec-jhu/fim.git
+cd fim
+conda env create -f fim_env.yml
+conda activate fim_env
+pip install -e .
 ```
 
-Run the server:
+> To enable GPU/CUDA support for PyTorch, edit `fim_env.yml` and ensure the
+> `cpuonly` line stays commented out before creating the environment.
+
+### Option B: pip only
+
+```bash
+git clone https://github.com/ssec-jhu/fim.git
+cd fim
+pip install -e ".[tracking]"   # runtime deps + PyTorch
+```
+
+Or, if you only need the UI / VFM (no PyTorch):
+
+```bash
+pip install -e .
+```
+
+### Verify the installation
+
+```bash
+python -c "import fim; print('fim installed')"
+```
+
+---
+
+## Running the Pipeline
+
+### Web UI
 
 ```bash
 uvicorn fim.app.main:app --reload
 ```
 
-Open:
-- `http://127.0.0.1:8000/ui`
+Open `http://127.0.0.1:8000/ui` in your browser. Parameters are rendered
+dynamically from `fim/app/schemas/fim_params.schema.json` — update the schema
+to add or remove parameters without editing UI code.
 
-### CLI wrapper (schema-driven)
-
-Run without the UI:
+### CLI (schema-driven)
 
 ```bash
 python -m fim.app.cli list-steps
@@ -108,56 +85,91 @@ python -m fim.app.cli show-step tracking
 python -m fim.app.cli run tracking --set out_dir=/tmp/fim-out --set num_iter=200
 ```
 
+### Direct script execution
 
-# Testing
-_NOTE: The following steps require ``pip install -r requirements/dev.txt``._
+```bash
+# Deformation tracking
+python fim/refactor/deformation_tracking.py \
+    --ref_dir path/to/reference_tiffs \
+    --def_dir path/to/deformed_tiffs \
+    --out_dir path/to/output
 
-## Using tox
+# Virtual Fields Method
+python fim/refactor/main_VFM.py \
+    --data_path path/to/output \
+    --material_model linear
+```
 
-* Run tox ``tox``. This will run all of linting, security, test, docs and package building within tox virtual environments.
-* To run an individual step, use ``tox -e {step}`` for example, ``tox -e test``, ``tox -e build-docs``, etc.
+---
 
-Typically, the CI tests run in github actions will use tox to run as above. See also [ci.yml](https://github.com/ssec-jhu/fim.git/blob/main/.github/workflows/ci.yml).
+## Build with Docker
 
-## Outside of tox:
+```bash
+docker build -t fim .
+docker run -d -p 8000:8000 fim
+```
 
-The below assume you are running steps without tox, and that all requirements are installed into a conda environment, e.g. with ``pip install -r requirements/all.txt``.
+Or pull a pre-built image:
 
-_NOTE: Tox will run these for you, this is specifically if there is a requirement to setup environment and run these outside the purview of tox._
+```bash
+docker pull ghcr.io/ssec-jhu/fim:latest
+```
 
-### Linting:
-Facilitates in testing typos, syntax, style, and other simple code analysis tests.
-  * ``cd`` into repo dir.
-  * Switch/activate correct environment: ``conda activate <environment_name>``
-  * Run ``ruff .``
-  * This can be automatically run (recommended for devs) every time you ``git push`` by installing the provided
-    ``pre-push`` git hook available in ``./githooks``.
-    Instructions are in that file - just ``cp ./githooks/pre-push .git/hooks/;chmod +x .git/hooks/pre-push``.
+---
 
-### Security Checks:
-Facilitates in checking for security concerns using [Bandit](https://bandit.readthedocs.io/en/latest/index.html).
- * ``cd`` into repo dir.
- * ``bandit --severity-level=medium -r fim``
+## Testing
 
-### Unit Tests:
-Facilitates in testing core package functionality at a modular level.
-  * ``cd`` into repo dir.
-  * Run all available tests: ``pytest .``
-  * Run specific test: ``pytest tests/test_util.py::test_base_dummy``.
+Install dev dependencies:
 
-### Regression tests:
-Facilitates in testing whether core data results differ during development.
-  * WIP
+```bash
+pip install -e ".[dev]"
+```
 
-### Smoke Tests:
-Facilitates in testing at the application and infrastructure level.
-  * WIP
+### Using tox (recommended)
 
-### Build Docs:
-Facilitates in building, testing & viewing the docs.
- * ``cd`` into repo dir.
- * ``pip install -r requirements/docs.txt``
- * ``cd docs``
- * ``make clean``
- * ``make html``
- * To view the docs in your default browser run ``open docs/_build/html/index.html``.
+```bash
+tox              # run all checks: lint, security, tests, docs, build
+tox -e test      # tests only
+tox -e check-style  # lint only
+```
+
+### Outside of tox
+
+```bash
+pytest .                                        # all tests
+pytest tests/test_util.py::test_base_dummy      # single test
+ruff check . --select E --select F --select I   # lint
+bandit --severity-level=medium -r fim            # security
+```
+
+### Build docs
+
+```bash
+pip install -r requirements/docs.txt
+cd docs && make clean html
+open _build/html/index.html
+```
+
+---
+
+## Project Layout
+
+```
+fim/
+├── app/               # FastAPI web UI + CLI + pipeline runner
+│   ├── main.py        # FastAPI application
+│   ├── cli.py         # Schema-driven CLI
+│   └── schemas/       # JSON parameter schemas
+├── refactor/          # Core algorithms
+│   ├── deformation_tracking.py   # Step 1: 3D displacement estimation
+│   ├── main_VFM.py              # Step 2: Inverse material characterization
+│   └── vws_models.py            # VFM model implementations
+├── tests/             # Unit tests
+└── legacy/            # Previous implementations (not actively maintained)
+```
+
+---
+
+## License
+
+See [LICENSE](LICENSE).

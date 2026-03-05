@@ -3,26 +3,24 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - scikit-image
-  - scipy
+  - python>=3.11
+
+  # --- Runtime (tracking + VFM) ---
   - numpy
+  - scipy
+  - scikit-image
   - matplotlib
   - tqdm
+  - pytorch
   - torchvision
   - torchaudio
-  - jupyterlab
-  - cpuonly
-  - pandas
-  - protobuf
-  - absl-py
-  - mpmath
-  - ipywidgets
-  - nodejs
+  # - cpuonly          # uncomment to force CPU-only PyTorch (remove for GPU/CUDA support)
+  - fastapi
+  - uvicorn
+  - pyyaml
+
+  # --- Dev / testing (optional) ---
   - pytest
   - pytest-cov
-  - fastapi
-  - trackpy
-  - tifffile
-  - simpleitk
-  - scikit-learn
-prefix: /Users/xiang/anaconda3/envs/fim_env
+  - jupyterlab
+  - ipywidgets
