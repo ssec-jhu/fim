@@ -33,6 +33,7 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -47,7 +48,7 @@ from skimage.registration import phase_cross_correlation
 from tqdm.auto import tqdm
 
 # ----------------------------
-# Defaults (Exp2)
+# Defaults (Exp2) You can change the paths to your own data in CLI args.
 # ----------------------------
 DEFAULT_WITHOUT_SPHERE = (
     "/Users/xiang/fim/Nate/Experiment_data/Isotropic Validation Experiment 2 (2025-8-7)/Experimental Data/"
@@ -345,6 +346,12 @@ def main() -> None:
         help="Interpolation order for upsampling deformation field (1=linear, 2=quadratic, 3=cubic). Legacy uses 3.",
     )
     p.add_argument(
+        "--skip_grids",
+        action="store_true",
+        help="Skip writing X/Y/Z grids and volume_matrix (saves disk I/O when running with inverse modeling next). "
+        "A grid_params.json is always saved so main_VFM.py can recreate them.",
+    )
+    p.add_argument(
         "--smooth_method",
         type=str,
         default="none",
@@ -574,13 +581,24 @@ def main() -> None:
     np.save(out_dir / "Uy.npy", Uy_m.astype(np.float32, copy=False))
     np.save(out_dir / "Uz.npy", Uz_m.astype(np.float32, copy=False))
 
-    # Save X/Y/Z 3D grids (meters) + volume_matrix (m^3)
-    write_xyz_grids_m(out_dir, x_axis_m, y_axis_m, z_axis_m, shape=(nx, ny, nz), dtype=np.float32, chunk_z=8)
-
     dxy_final_um = dxy_eff_um * ds_xy
     dz_final_um = dz_eff_um * ds_z
     voxel_volume_m3 = float((dxy_final_um * 1e-6) * (dxy_final_um * 1e-6) * (dz_final_um * 1e-6))
-    write_volume_matrix_m3(out_dir, shape=(nx, ny, nz), voxel_volume_m3=voxel_volume_m3, dtype=np.float32)
+
+    # Always save grid metadata so main_VFM.py can recreate grids if needed
+    grid_meta = {
+        "shape": [nx, ny, nz],
+        "dxy_m": dxy_final_um * 1e-6,
+        "dz_m": dz_final_um * 1e-6,
+        "voxel_volume_m3": voxel_volume_m3,
+    }
+    (out_dir / "grid_params.json").write_text(json.dumps(grid_meta, indent=2) + "\n", encoding="utf-8")
+
+    if args.skip_grids:
+        print("Skipping X/Y/Z grids and volume_matrix (--skip_grids)", file=sys.stderr, flush=True)
+    else:
+        write_xyz_grids_m(out_dir, x_axis_m, y_axis_m, z_axis_m, shape=(nx, ny, nz), dtype=np.float32, chunk_z=8)
+        write_volume_matrix_m3(out_dir, shape=(nx, ny, nz), voxel_volume_m3=voxel_volume_m3, dtype=np.float32)
 
     # Minimal run metadata
     (out_dir / "run_info.txt").write_text(

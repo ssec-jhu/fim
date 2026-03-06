@@ -164,17 +164,14 @@ def test_load_common_and_specific_fields(tmp_path, monkeypatch):
     assert Xo.shape == X.shape and vol_out.shape == X.shape
     assert tensor.shape[-2:] == (3, 3)
 
-    # HGO
-    _write_inp(folder / "350k.inp")
-    Xh, Yh, Zh, Th, Lh, Wh, Hh, Vh = mvf.load_hgo_fields(str(folder))
-    assert np.isclose([Lh, Wh, Hh], [1.0, 1.0, 0.5]).all()
-    assert Th.shape[-2:] == (3, 3) and Vh.shape == vol.shape
+    # _get_dimensions from coordinate grids (no mesh file)
+    Lg, Wg, Hg = mvf._get_dimensions(Xo, Yo, Zo)
+    assert Lg > 0 and Wg > 0 and Hg > 0
 
-    # NH
-    _write_inp(folder / "335k_32um.inp")
-    Xn, Yn, Zn, Tn, Ln, Wn, Hn, Vn = mvf.load_nh_fields(str(folder))
-    assert np.isclose([Ln, Wn, Hn], [1.0, 1.0, 0.5]).all()
-    assert Tn.shape[-2:] == (3, 3) and Vn.shape == vol.shape
+    # _get_dimensions from .inp mesh file
+    _write_inp(folder / "sample.inp")
+    Lm, Wm, Hm = mvf._get_dimensions(Xo, Yo, Zo, mesh_file=str(folder / "sample.inp"))
+    assert np.isclose([Lm, Wm, Hm], [1.0, 1.0, 0.5]).all()
 
 
 # =========================
@@ -246,6 +243,11 @@ def test_main_block_executes_all_modes(monkeypatch, tmp_path, mode):
     ensure_fake_scipy(monkeypatch)
     monkeypatch.setattr(sys, "argv", ["prog", "--model", mode, "--data_path", str(tmp_path)])
 
+    # Create stub .npy files so os.path.exists() checks pass inside load_common_fields
+    dummy = np.zeros((3, 3, 3))
+    for name in ("X", "Y", "Z", "Ux", "Uy", "Uz", "volume_matrix"):
+        np.save(tmp_path / f"{name}.npy", dummy)
+
     # Patch heavy bits used inside __main__
     import fim.refactor.main_VFM as mvf_mod
     import fim.refactor.material_model as mm
@@ -258,3 +260,59 @@ def test_main_block_executes_all_modes(monkeypatch, tmp_path, mode):
 
     # Execute the script block
     runpy.run_module("fim.refactor.main_VFM", run_name="__main__")
+
+
+# =========================
+# Edge-case coverage
+# =========================
+
+
+def test_run_inverse_model_unknown_raises(monkeypatch):
+    mvf = import_mvf(monkeypatch)
+
+    class MUnknown:
+        name = "bogus"
+
+    with pytest.raises(ValueError, match="Unknown material model"):
+        mvf.run_inverse_model(None, None, None, None, None, [1], ((0,), (1,)), MUnknown())
+
+
+def test_needs_xy_swap_small_array(monkeypatch):
+    mvf = import_mvf(monkeypatch)
+    assert mvf._needs_xy_swap(np.zeros((1, 3, 3))) is False
+    assert mvf._needs_xy_swap(np.zeros((3,))) is False
+
+
+def test_auto_crop_blank_z_trims_edges(monkeypatch):
+    mvf = import_mvf(monkeypatch)
+    nz = 7
+    Ux = np.zeros((3, 3, nz))
+    Uy = np.zeros_like(Ux)
+    Uz = np.zeros_like(Ux)
+    Ux[:, :, 2:5] = 1.0  # only middle slices non-zero
+    result = mvf._auto_crop_blank_z(Ux, Uy, Uz)
+    assert result[0].shape[2] == 3  # slices 2,3,4 kept
+
+
+def test_create_grids_from_params(monkeypatch, tmp_path):
+    import json
+
+    mvf = import_mvf(monkeypatch)
+    meta = {"dxy_m": 1e-5, "dz_m": 2e-5, "voxel_volume_m3": 2e-15}
+    (tmp_path / "grid_params.json").write_text(json.dumps(meta))
+    shape = (4, 5, 6)
+    X, Y, Z, vol = mvf._create_grids_from_params(str(tmp_path), shape)
+    assert X.shape == shape
+    assert vol.shape == shape
+    assert np.isclose(vol[0, 0, 0], 2e-15)
+
+
+def test_load_common_fields_missing_files_raises(monkeypatch, tmp_path):
+    mvf = import_mvf(monkeypatch)
+    folder = tmp_path / "empty"
+    folder.mkdir()
+    np.save(folder / "Ux.npy", np.zeros((3, 3, 3)))
+    np.save(folder / "Uy.npy", np.zeros((3, 3, 3)))
+    np.save(folder / "Uz.npy", np.zeros((3, 3, 3)))
+    with pytest.raises(FileNotFoundError, match="Neither X.npy nor grid_params.json"):
+        mvf.load_common_fields(str(folder))

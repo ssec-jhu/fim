@@ -30,12 +30,40 @@ DEFAULT_PATHS = {
 
 # CLI
 parser = argparse.ArgumentParser(description="Run FIM Material Model Evaluation")
-parser.add_argument("--model", type=str, choices=["linear", "hgo", "nh"], help="Material model type")
+parser.add_argument("--model", type=str, default="linear", choices=["linear", "hgo", "nh"], help="Material model type")
 parser.add_argument("--data_path", type=str, help="Path to input data folder")
+
+# Shared across models
+parser.add_argument("--force_n", type=float, default=4.18e-05, help="Applied indentation force (N)")
+
+# Linear model parameters
+parser.add_argument("--E1_init", type=float, default=15000, help="E1 initial guess (Pa)")
+parser.add_argument("--E2_init", type=float, default=15000, help="E2 initial guess (Pa)")
+parser.add_argument("--v12", type=float, default=0.49, help="Poisson ratio v12")
+parser.add_argument("--v23", type=float, default=0.49, help="Poisson ratio v23")
+parser.add_argument("--Gt", type=float, default=500, help="Shear modulus Gt (Pa)")
+
+# HGO model parameters
+parser.add_argument("--C10_init", type=float, default=500, help="C10 initial guess (Pa) — isotropic ground matrix")
+parser.add_argument("--D1_init", type=float, default=1e-5, help="D1 initial guess — compressibility")
+parser.add_argument("--k1", type=float, default=2000, help="Fiber stiffness k1 (Pa)")
+parser.add_argument("--k2", type=float, default=5, help="Fiber nonlinearity k2")
+parser.add_argument("--kappa_init", type=float, default=0.05, help="Fiber dispersion kappa (0=aligned, 1/3=isotropic)")
+
+# NH model parameters (C10_init and D1_init are shared with HGO)
+
+# Optional mesh file for L/W/H dimensions (falls back to coordinate grids)
+parser.add_argument(
+    "--mesh_file",
+    type=str,
+    default=None,
+    help="Optional .inp mesh file for sample dimensions. If omitted, L/W/H are computed from coordinate grids.",
+)
+
 args = parser.parse_args()
 
 # Resolve inputs
-model_name = args.model if args.model else "linear"
+model_name = args.model
 data_path = args.data_path if args.data_path else DEFAULT_PATHS[model_name]
 
 
@@ -127,21 +155,70 @@ def _auto_crop_blank_z(Ux, Uy, Uz, *grids, threshold=1e-30):
     return tuple(cropped)
 
 
+def _create_grids_from_params(folder, shape):
+    """Create X, Y, Z grids and volume_matrix from grid_params.json when .npy files are absent.
+
+    The grids use the (X,Y,Z) physics convention (X along axis 0) — the caller handles
+    any axis swap needed for VFM.
+    """
+    import json
+
+    meta_path = os.path.join(folder, "grid_params.json")
+    with open(meta_path, encoding="utf-8") as f:
+        meta = json.load(f)
+
+    dxy_m = float(meta["dxy_m"])
+    dz_m = float(meta["dz_m"])
+    voxel_vol = float(meta["voxel_volume_m3"])
+
+    nx, ny, nz = shape
+    x_axis = np.arange(nx, dtype=np.float64) * dxy_m
+    y_axis = np.arange(ny, dtype=np.float64) * dxy_m
+    z_axis = np.arange(nz, dtype=np.float64) * dz_m
+
+    X, Y, Z = np.meshgrid(x_axis, y_axis, z_axis, indexing="ij")
+    volume_matrix = np.full(shape, voxel_vol, dtype=np.float64)
+
+    logging.info(
+        "Created grids from grid_params.json: shape=%s, dxy=%.3e m, dz=%.3e m",
+        shape,
+        dxy_m,
+        dz_m,
+    )
+    return X, Y, Z, volume_matrix
+
+
 def load_common_fields(folder):
     """Loads nodal coordinates and displacement fields, computes deformation gradient tensors,
     and load volume_matrix.
+
+    If X.npy is missing but grid_params.json exists (pipeline mode with --skip_grids),
+    the coordinate grids and volume_matrix are created on-the-fly from the metadata.
 
     Returns:
         X, Y, Z: 3D coordinate grids
         tensor_displacement_list: ndarray of shape (Nx, Ny, Nz, 3, 3)
         volume_matrix: per-voxel volume weights matrix
     """
-    X = np.load(f"{folder}/X.npy")
-    Y = np.load(f"{folder}/Y.npy")
-    Z = np.load(f"{folder}/Z.npy")
     Ux = np.load(f"{folder}/Ux.npy")
     Uy = np.load(f"{folder}/Uy.npy")
     Uz = np.load(f"{folder}/Uz.npy")
+
+    x_path = os.path.join(folder, "X.npy")
+    grid_params_path = os.path.join(folder, "grid_params.json")
+
+    if os.path.exists(x_path):
+        X = np.load(f"{folder}/X.npy")
+        Y = np.load(f"{folder}/Y.npy")
+        Z = np.load(f"{folder}/Z.npy")
+        volume_matrix = np.load(f"{folder}/volume_matrix.npy")
+    elif os.path.exists(grid_params_path):
+        X, Y, Z, volume_matrix = _create_grids_from_params(folder, Ux.shape)
+    else:
+        raise FileNotFoundError(
+            f"Neither X.npy nor grid_params.json found in {folder}. "
+            "Run deformation_tracking.py first, or provide coordinate grid files."
+        )
 
     # Auto-detect axis convention.
     # central_differentiation expects X along axis 1, Y along axis 0 (image convention).
@@ -156,12 +233,9 @@ def load_common_fields(folder):
         Ux = np.swapaxes(Ux, 0, 1)
         Uy = np.swapaxes(Uy, 0, 1)
         Uz = np.swapaxes(Uz, 0, 1)
-
-    # Remove leading/trailing blank Z slices to avoid artificial gradient spikes.
-    volume_matrix = np.load(f"{folder}/volume_matrix.npy")
-    if swap:
         volume_matrix = np.swapaxes(volume_matrix, 0, 1)
 
+    # Remove leading/trailing blank Z slices to avoid artificial gradient spikes.
     Ux, Uy, Uz, X, Y, Z, volume_matrix = _auto_crop_blank_z(Ux, Uy, Uz, X, Y, Z, volume_matrix)
 
     # Update indentation depth used by virtual fields:
@@ -180,30 +254,23 @@ def load_common_fields(folder):
     return X, Y, Z, tensor_displacement_list, volume_matrix
 
 
-def load_hgo_fields(folder):
-    """Loads HGO-specific displacement, volume, and mesh dimensions."""
-    X, Y, Z, tensor_displacement_list, volume_matrix = load_common_fields(folder)
+def _get_dimensions(X, Y, Z, mesh_file=None):
+    """Get sample dimensions L, W, H.
 
-    undeformed_nodes, connectivity = read_input_file(f"{folder}/350k.inp")
-
-    L = abs(np.max(undeformed_nodes[:, 1]) - np.min(undeformed_nodes[:, 1]))
-    W = abs(np.max(undeformed_nodes[:, 2]) - np.min(undeformed_nodes[:, 2]))
-    H = abs(np.max(undeformed_nodes[:, 3]) - np.min(undeformed_nodes[:, 3]))
-
-    return X, Y, Z, tensor_displacement_list, L, W, H, volume_matrix
-
-
-def load_nh_fields(folder):
-    """Loads NH-specific displacement, volume, and mesh dimensions."""
-    X, Y, Z, tensor_displacement_list, volume_matrix = load_common_fields(folder)
-
-    undeformed_nodes, connectivity = read_input_file(f"{folder}/335k_32um.inp")
-
-    L = abs(np.max(undeformed_nodes[:, 1]) - np.min(undeformed_nodes[:, 1]))
-    W = abs(np.max(undeformed_nodes[:, 2]) - np.min(undeformed_nodes[:, 2]))
-    H = abs(np.max(undeformed_nodes[:, 3]) - np.min(undeformed_nodes[:, 3]))
-
-    return X, Y, Z, tensor_displacement_list, L, W, H, volume_matrix
+    If mesh_file is provided, reads an .inp file for precise node-based extents.
+    Otherwise computes from coordinate grids.
+    """
+    if mesh_file:
+        logging.info("Reading dimensions from mesh file: %s", mesh_file)
+        nodes, _ = read_input_file(mesh_file)
+        L = abs(np.max(nodes[:, 1]) - np.min(nodes[:, 1]))
+        W = abs(np.max(nodes[:, 2]) - np.min(nodes[:, 2]))
+        H = abs(np.max(nodes[:, 3]) - np.min(nodes[:, 3]))
+    else:
+        L = np.ceil((np.max(X) - np.min(X)) * 1e4) / 1e4
+        W = np.ceil((np.max(Y) - np.min(Y)) * 1e4) / 1e4
+        H = np.ceil((np.max(Z) - np.min(Z)) * 1e4) / 1e4
+    return L, W, H
 
 
 if __name__ == "__main__":
@@ -214,31 +281,22 @@ if __name__ == "__main__":
     if model_name == "linear":
         # === Linear Model ===
         X, Y, Z, disp_tensor, volume_matrix = load_common_fields(data_path)
-        L = np.ceil((np.max(X) - np.min(X)) * 1e4) / 1e4
-        W = np.ceil((np.max(Y) - np.min(Y)) * 1e4) / 1e4
-        H = np.ceil((np.max(Z) - np.min(Z)) * 1e4) / 1e4
+        L, W, H = _get_dimensions(X, Y, Z, args.mesh_file)
 
         linear_params = {
-            "E1": 15000,
-            # "E2": 500,
-            "E2": 15000,
-            "v12": 0.49,
-            "v23": 0.49,
-            "Gt": 0.5e3,
+            "E1": args.E1_init,
+            "E2": args.E2_init,
+            "v12": args.v12,
+            "v23": args.v23,
+            "Gt": args.Gt,
             "L": L,
             "W": W,
             "H": H,
-            # "Force": 9.49803e-06,
-            # "Force": 3.18e-4
-            # "Force": 7.6e-5
-            # "Force": 2.967e-05
-            # "Force": 3.18e-5
-            "Force": 4.18e-05,
+            "Force": args.force_n,
         }
         linear_model = MaterialModel("linear", linear_params)
 
-        initial_guess = [linear_params["E1"], linear_params["E2"]]
-        # bounds = ((2000, 500), (9000, 2500))
+        initial_guess = [args.E1_init, args.E2_init]
         bounds = ((1000, 1000), (25000, 25000))
 
         # Print initial values and bounds
@@ -257,27 +315,28 @@ if __name__ == "__main__":
 
         # Run sensitivity analysis
         deviation = 0.05
-        sens = linear_model.sensitivity_analysis_linear(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
+        linear_model.sensitivity_analysis_linear(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
 
     elif model_name == "hgo":
         # === HGO Model ===
-        X, Y, Z, disp_tensor, L, W, H, volume_matrix = load_hgo_fields(data_path)
+        X, Y, Z, disp_tensor, volume_matrix = load_common_fields(data_path)
+        L, W, H = _get_dimensions(X, Y, Z, args.mesh_file)
 
         hgo_params = {
-            "C10": 500,
-            "D1": 1e-5,
-            "k1": 2000,
-            "k2": 5,
-            "kappa": 0.05,
+            "C10": args.C10_init,
+            "D1": args.D1_init,
+            "k1": args.k1,
+            "k2": args.k2,
+            "kappa": args.kappa_init,
             "L": L,
             "W": W,
             "H": H,
             "volume_matrix": volume_matrix,
-            "Force": 1.20202e-05,
+            "Force": args.force_n,
         }
         hgo_model = MaterialModel("hgo", hgo_params)
 
-        initial_guess = [hgo_params["C10"], hgo_params["D1"], hgo_params["kappa"]]
+        initial_guess = [args.C10_init, args.D1_init, args.kappa_init]
         bounds = ((0, 1e-5, 0), (1000, 1e-3, 0.33))
 
         # Print initial values and bounds
@@ -311,26 +370,24 @@ if __name__ == "__main__":
 
         # Run sensitivity analysis with optimized parameters
         deviation = 0.05
-        sens = hgo_model.sensitivity_analysis_hgo(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
+        hgo_model.sensitivity_analysis_hgo(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
 
     elif model_name == "nh":
         # === NH Model ===
-        X, Y, Z, disp_tensor, L, W, H, volume_matrix = load_nh_fields(data_path)
+        X, Y, Z, disp_tensor, volume_matrix = load_common_fields(data_path)
+        L, W, H = _get_dimensions(X, Y, Z, args.mesh_file)
         nh_params = {
-            "C10": 267 * 0.95,
-            "D1": 8e-4 * 0.95,
-            # "k1": 2000,
-            # "k2": 5,
-            # "kappa": 0.05,
+            "C10": args.C10_init,
+            "D1": args.D1_init,
             "L": L,
             "W": W,
             "H": H,
             "volume_matrix": volume_matrix,
-            "Force": 1.05e-05,
+            "Force": args.force_n,
         }
         nh_model = MaterialModel("nh", nh_params)
 
-        initial_guess = [nh_params["C10"], nh_params["D1"]]
+        initial_guess = [args.C10_init, args.D1_init]
         bounds = ((100, 1e-6), (1000, 1e-3))
 
         # Print initial values and bounds
@@ -353,6 +410,10 @@ if __name__ == "__main__":
 
         # Run sensitivity analysis with optimized parameters
         deviation = 0.05
-        sens = nh_model.sensitivity_analysis_nh(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
+        nh_model.sensitivity_analysis_nh(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
 
-    logging.info(f"Total runtime: {time.time() - start_time}")
+    # Flush stdout so sensitivity matrix prints complete before the final timing line
+    import sys
+
+    sys.stdout.flush()
+    logging.info(f"Total runtime: {time.time() - start_time:.1f} seconds")
