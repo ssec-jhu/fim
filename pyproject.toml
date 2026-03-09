@@ -4,7 +4,7 @@ dynamic = ["version"]
 authors = [
     {name = "Scientific Software Engineering Center at JHU", email = "ssec@jhu.edu"},
 ]
-description = "Full-field Indentation Measurement: 3D deformation tracking and inverse material characterization"
+description = "Full-Field Indentation Microscopy: 3D deformation tracking and inverse material characterization"
 readme = "README.md"
 license = {file = "LICENSE"}
 

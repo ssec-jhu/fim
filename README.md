@@ -1,4 +1,4 @@
-# FIM — Full-field Indentation Measurement
+# FIM — Full-Field Indentation Microscopy
 
 [![CI](https://github.com/ssec-jhu/fim/actions/workflows/ci.yml/badge.svg)](https://github.com/ssec-jhu/fim/actions/workflows/ci.yml)
 [![Documentation Status](https://readthedocs.org/projects/fim/badge/?version=latest)](https://fim.readthedocs.io/en/latest/?badge=latest)
