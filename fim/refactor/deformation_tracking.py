@@ -48,16 +48,11 @@ from skimage.registration import phase_cross_correlation
 from tqdm.auto import tqdm
 
 # ----------------------------
-# Defaults (Exp2) You can change the paths to your own data in CLI args.
+# Defaults: small simulated stacks under fim/test_data/simulate/ (override via CLI).
 # ----------------------------
-DEFAULT_WITHOUT_SPHERE = (
-    "/Users/xiang/fim/Nate/Experiment_data/Isotropic Validation Experiment 2 (2025-8-7)/Experimental Data/"
-    "Exp2_EdmundSphere_DowSilicone_710_NoSphere_stack.tif"
-)
-DEFAULT_WITH_SPHERE = (
-    "/Users/xiang/fim/Nate/Experiment_data/Isotropic Validation Experiment 2 (2025-8-7)/Experimental Data/"
-    "Exp2_EdmundSphere_DowSilicone_710_Sphere_stack.tif"
-)
+_SIM_TIFF_DIR = Path(__file__).resolve().parent.parent / "test_data" / "simulate"
+DEFAULT_WITHOUT_SPHERE = str(_SIM_TIFF_DIR / "ref_image.tif")
+DEFAULT_WITH_SPHERE = str(_SIM_TIFF_DIR / "def_image.tif")
 
 
 def axis_angle_rotmat(axis: torch.Tensor, angle: torch.Tensor) -> torch.Tensor:
@@ -652,4 +647,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main()  # pragma: no cover
