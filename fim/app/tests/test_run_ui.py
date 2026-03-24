@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import runpy
 import sys
 from unittest.mock import patch
 
@@ -50,3 +51,10 @@ class TestRunUiMain:
         out = capsys.readouterr().out
         assert "fim-ui" in out
         assert "host" in out.lower()
+
+    def test_name_main_guard_invokes_main_for_help(self) -> None:
+        """Cover the ``__main__`` entry by running the module source with ``run_name='__main__'``."""
+        with patch.object(sys, "argv", ["fim-ui", "--help"]):
+            with pytest.raises(SystemExit) as exc_info:
+                runpy.run_module("fim.app.run_ui", run_name="__main__", alter_sys=False)
+        assert exc_info.value.code in (0, None)

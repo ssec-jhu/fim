@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -406,3 +407,17 @@ class TestMainPipeline:
             with pl, ps:
                 dt.main()
         assert "cuda" in (tmp_path / "run_info.txt").read_text(encoding="utf-8").lower()
+
+
+@pytest.mark.unit
+class TestModuleMainGuard:
+    def test_name_main_guard_invokes_main_for_help(self) -> None:
+        """Cover ``if __name__ == '__main__': main()`` via runpy (same process / coverage)."""
+        with patch.object(sys, "argv", ["deformation_tracking", "--help"]):
+            with pytest.raises(SystemExit) as exc_info:
+                runpy.run_module(
+                    "fim.refactor.deformation_tracking",
+                    run_name="__main__",
+                    alter_sys=False,
+                )
+        assert exc_info.value.code in (0, None)
