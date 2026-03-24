@@ -332,7 +332,9 @@ def main() -> None:
         "--Uz_penalty_weight",
         type=float,
         default=0.0,
-        help="Weight for indentation constraint penalty. Larger values more strongly enforce Uz < 0 in the final output.",
+        help=(
+            "Weight for indentation constraint penalty. Larger values more strongly enforce Uz < 0 in the final output."
+        ),
     )
     p.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"], help="Compute device")
     p.add_argument(
