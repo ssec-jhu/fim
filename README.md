@@ -27,43 +27,52 @@ with dynamically rendered parameters.
 
 ---
 
-## Quick Start
+## Installation
 
-### Option A: Conda (recommended)
+### pip (editable install)
 
-This is the easiest path, especially for deformation tracking which requires
-PyTorch.
+**Requirements:** Git, **Python 3.11+**, and `pip`. All dependencies (including **PyTorch**) are declared in **`pyproject.toml`** and installed by `pip install -e .`.
+
+Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html#installing) or [Anaconda](https://docs.anaconda.com/free/anaconda/install/index.html) if you do not have `conda` yet.
 
 ```bash
-git clone https://github.com/ssec-jhu/fim.git
-cd fim
-conda env create -f fim_env.yml
+# Download and install either miniconda or anaconda first
+# See: https://docs.conda.io/en/latest/miniconda.html#installing
+# Or: https://docs.anaconda.com/free/anaconda/install/index.html
+
+# 1. Create conda env with Python
+conda create -n fim_env python=3.11
 conda activate fim_env
-pip install -e .
-```
 
-> To enable GPU/CUDA support for PyTorch, edit `fim_env.yml` and ensure the
-> `cpuonly` line stays commented out before creating the environment.
-
-### Option B: pip only
-
-```bash
+# 2. Clone the repo
 git clone https://github.com/ssec-jhu/fim.git
 cd fim
-pip install -e ".[tracking]"   # runtime deps + PyTorch
-```
 
-Or, if you only need the UI / VFM (no PyTorch):
-
-```bash
+# 3. Install FIM and all dependencies
 pip install -e .
 ```
 
-### Verify the installation
+If you already have Python 3.11+ (venv or system), skip step 1 and run steps 2–3 in that environment.
+
+Run **`fim-ui`** and open **http://127.0.0.1:8000/** (`fim-ui --port 8001` if 8000 is busy).
+
+For **CUDA** on Linux/NVIDIA, install a matching PyTorch build from [pytorch.org](https://pytorch.org) first, then run `pip install -e .` again.
+
+### Docker
 
 ```bash
-python -c "import fim; print('fim installed')"
+docker build -t fim .
+docker run -d -p 8000:8000 fim
 ```
+
+Or use a pre-built image:
+
+```bash
+docker pull ghcr.io/ssec-jhu/fim:latest
+docker run -d -p 8000:8000 ghcr.io/ssec-jhu/fim:latest
+```
+
+The container serves the web UI on port **8000**.
 
 ---
 
@@ -72,10 +81,12 @@ python -c "import fim; print('fim installed')"
 ### Web UI
 
 ```bash
-uvicorn fim.app.main:app --reload
+fim-ui
 ```
 
-Open `http://127.0.0.1:8000/ui` in your browser. Parameters are rendered
+Same as `uvicorn fim.app.main:app --reload`. Use `--host 0.0.0.0` to listen on all interfaces and `--no-reload` in production.
+
+Parameters are rendered
 dynamically from `fim/app/schemas/fim_params.schema.json` — update the schema
 to add or remove parameters without editing UI code.
 
@@ -100,21 +111,6 @@ python -m fim.refactor.deformation_tracking \
 python -m fim.refactor.main_VFM \
     --data_path path/to/output \
     --model linear
-```
-
----
-
-## Build with Docker
-
-```bash
-docker build -t fim .
-docker run -d -p 8000:8000 fim
-```
-
-Or pull a pre-built image:
-
-```bash
-docker pull ghcr.io/ssec-jhu/fim:latest
 ```
 
 ---
@@ -147,7 +143,7 @@ bandit --severity-level=medium -r fim            # security
 ### Build docs
 
 ```bash
-pip install -r requirements/docs.txt
+pip install -e ".[docs]"
 cd docs && make clean html
 open _build/html/index.html
 ```
