@@ -15,15 +15,13 @@ dependencies = [
     "scikit-image>=0.20",
     "matplotlib>=3.7",
     "tqdm>=4.60",
+    "torch>=2.0",
     "fastapi[all]",
     "uvicorn[standard]>=0.30",
     "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
-tracking = [
-    "torch>=2.0",
-]
 dev = [
     "bandit>=1.7",
     "build",
@@ -46,6 +44,9 @@ docs = [
 homepage = "https://github.com/ssec-jhu/fim.git"
 documentation = "https://github.com/ssec-jhu/fim.git"
 repository = "https://github.com/ssec-jhu/fim.git"
+
+[project.scripts]
+fim-ui = "fim.app.run_ui:main"
 
 [build-system]
 requires = ["setuptools>=61.2", "setuptools_scm[toml]>=8.0"]

@@ -323,8 +323,17 @@ def main() -> None:
 
     p.add_argument("--deform_downsample_factor_xy", type=int, default=10, help="Coarse deformation grid factor XY")
     p.add_argument("--deform_downsample_factor_z", type=int, default=8, help="Coarse deformation grid factor Z")
-    p.add_argument("--indentation_constraint", action="store_true", help="Add penalty for positive Uz in r_deform")
-    p.add_argument("--Uz_penalty_weight", type=float, default=0.0, help="Weight for positive Uz penalty")
+    p.add_argument(
+        "--indentation_constraint",
+        action="store_true",
+        help="Indentation constraint: drive the saved output Uz to be mostly negative (downward displacement).",
+    )
+    p.add_argument(
+        "--Uz_penalty_weight",
+        type=float,
+        default=0.0,
+        help="Weight for indentation constraint penalty. Larger values more strongly enforce Uz < 0 in the final output.",
+    )
     p.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"], help="Compute device")
     p.add_argument(
         "--output_downsample_xy",
@@ -495,8 +504,11 @@ def main() -> None:
         if args.TV2_reg and args.TV2_reg > 0:
             loss = loss + (args.TV2_reg * total_variation_loss(r_deform_um))
         if args.indentation_constraint and args.Uz_penalty_weight > 0:
-            positive_uz = torch.relu(r_deform_um[:, :, :, 2])
-            loss = loss + (args.Uz_penalty_weight * torch.mean(positive_uz**2))
+            # Output convention: Uz_m = -(Uz_rot_um + shift_um[2]) * 1e-6.
+            # Therefore, to push output Uz_m < 0 (downward), we penalize negative internal r_deform_um z
+            # so the optimizer drives internal_z >= 0.
+            negative_internal_uz = torch.relu(-r_deform_um[:, :, :, 2])
+            loss = loss + (args.Uz_penalty_weight * torch.mean(negative_internal_uz**2))
 
         loss.backward()
         for opt in optimizers:
