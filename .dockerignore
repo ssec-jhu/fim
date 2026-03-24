@@ -1,0 +1,44 @@
+# VCS / CI
+.git
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.egg-info
+.eggs
+dist
+build
+
+# Virtual envs / secrets
+.venv
+venv
+.env
+.env.*
+
+# Tooling / coverage
+.tox
+.coverage
+coverage.xml
+htmlcov
+
+# Docs build output
+docs/_build
+
+# Large experiment outputs and bulky test arrays (not needed to run the UI)
+fim/**/output/
+fim/test_data/**/*.npy
+
+# Editor / OS
+.idea
+.vscode
+*.swp
+.DS_Store
+
+# Misc local artifacts
+*.log
+repomix-output.xml

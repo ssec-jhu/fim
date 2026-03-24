@@ -1,0 +1,20 @@
+# Run the FIM web UI locally with one command: `docker compose up --build`
+# Open http://localhost:8000
+
+services:
+  fim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SETUPTOOLS_SCM_PRETEND_VERSION: ${SETUPTOOLS_SCM_PRETEND_VERSION:-0.0.0+docker}
+    image: fim:local
+    ports:
+      - "${FIM_PORT:-8000}:8000"
+    restart: unless-stopped
+    environment:
+      # Cleaner logs when the UI runs pipeline jobs (optional)
+      FIM_UI_NO_TQDM: ${FIM_UI_NO_TQDM:-0}
+    # Optional: persist job outputs written under a host directory
+    # volumes:
+    #   - ./fim-docker-data:/data
