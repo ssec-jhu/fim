@@ -34,11 +34,51 @@
         header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 30px;
+            padding: 14px 18px;
+            text-align: left;
+        }
+        header h1 { font-size: 1.6em; margin-bottom: 2px; line-height: 1.1; }
+        header p { font-size: 0.95em; opacity: 0.9; }
+
+        .header-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            flex-wrap: nowrap;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header-side {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            min-width: 64px;
+        }
+        .header-text {
+            flex: 1;
+            min-width: 220px;
             text-align: center;
         }
-        header h1 { font-size: 2.5em; margin-bottom: 10px; }
-        header p { font-size: 1.1em; opacity: 0.9; }
+        .org-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 10px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.28);
+            background: rgba(255,255,255,0.10);
+            backdrop-filter: blur(4px);
+        }
+        .org-badge img { height: 34px; width: auto; display: block; }
+
+        @media (max-width: 720px) {
+            header { padding: 12px 12px; }
+            header h1 { font-size: 1.35em; }
+            .org-badge img { height: 28px; }
+            .header-side { min-width: 52px; }
+        }
         .workflow-steps {
             display: flex;
             justify-content: space-around;
@@ -99,6 +139,64 @@
             border-radius: 4px;
             font-size: 0.95em;
         }
+        /* Match native file input: one bordered control, button + path text */
+        .dir-picker-row {
+            display: flex;
+            align-items: stretch;
+            width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+            background: #fff;
+        }
+        .dir-picker-btn {
+            flex: 0 0 auto;
+            padding: 8px 14px;
+            margin: 0;
+            font-size: 0.95em;
+            font-weight: 500;
+            font-family: inherit;
+            color: #333;
+            background: #f8f9fa;
+            border: none;
+            border-right: 1px solid #ddd;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .dir-picker-btn:hover {
+            background: #e9ecef;
+        }
+        .dir-picker-btn:focus {
+            outline: 2px solid #667eea;
+            outline-offset: -2px;
+            z-index: 1;
+        }
+        .dir-picker-display {
+            flex: 1;
+            min-width: 0;
+            padding: 8px 10px;
+            display: flex;
+            align-items: center;
+            font-size: 0.95em;
+            color: #555;
+            background: #fff;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .dir-picker-fallback {
+            display: block;
+            margin-top: 6px;
+            padding: 0;
+            border: none;
+            background: none;
+            color: #667eea;
+            font-size: 0.8em;
+            cursor: pointer;
+            text-decoration: underline;
+            text-align: left;
+        }
+        .dir-picker-fallback:hover { color: #4a5fc7; }
 
         .btn {
             padding: 12px 24px;
@@ -124,6 +222,29 @@
             width: 100%;
         }
         .btn-secondary:hover { background: #5a6268; }
+        .btn-danger {
+            background: #c0392b;
+            color: white;
+            width: 100%;
+        }
+        .btn-danger:hover { background: #a93226; }
+
+        .distortion-notice {
+            margin-top: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: #f0f2ff;
+            border: 1px solid #e2e6f7;
+            border-left: 3px solid #667eea;
+            color: #555;
+            font-size: 0.82em;
+            line-height: 1.35;
+        }
+        .distortion-notice .distortion-notice-title {
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 4px;
+        }
 
         .advanced-options { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px; }
         .advanced-options summary { cursor: pointer; font-weight: 600; color: #667eea; margin-bottom: 10px; }
@@ -350,8 +471,24 @@
 
     <div class="container">
         <header>
-            <h1>🔬 FIM</h1>
-            <p>Full-field Indentation Microscopy</p>
+            <div class="header-inner">
+                <div class="header-side" aria-label="UIUC">
+                    <div class="org-badge" title="University of Illinois Urbana-Champaign">
+                        <img src="/static/img/uiuc.svg" alt="UIUC logo" />
+                    </div>
+                </div>
+
+                <div class="header-text">
+                    <h1>🔬 FIM</h1>
+                    <p>Full-field Indentation Microscopy</p>
+                </div>
+
+                <div class="header-side" aria-label="JHU SSEC">
+                    <div class="org-badge" title="Johns Hopkins University - Scientific Software Engineering Center (SSEC)">
+                        <img src="/static/img/jhu_ssec.svg" alt="JHU SSEC logo" />
+                    </div>
+                </div>
+            </div>
         </header>
 
         <div class="workflow-steps">
@@ -384,12 +521,21 @@
                     <div id="advanced-params" style="margin-top: 10px;"></div>
                 </details>
 
+                <div id="distortion-notice" class="distortion-notice" style="display:none;">
+                    <div class="distortion-notice-title">Distortion — not available in this build</div>
+                    Runs will fail fast (no script). Use <strong>Tracking</strong> or <strong>Inverse</strong>, or start the pipeline from step 2.
+                </div>
+
                 <button class="btn btn-primary" style="margin-top: 20px;" onclick="runSelectedStep()">
                     ▶️ Run Selected Step
                 </button>
 
                 <button class="btn btn-primary" style="margin-top: 10px;" onclick="runFromHerePipeline()">
                     ⚡ Run From Here (Pipeline)
+                </button>
+
+                <button type="button" class="btn btn-danger" id="stop-job-btn" style="margin-top: 10px; display: none;" onclick="stopRunningJob()">
+                    Stop
                 </button>
 
                 <button class="btn btn-secondary" style="margin-top: 10px;" onclick="loadSchemaDebug()">
@@ -462,9 +608,7 @@
                     <button class="btn btn-secondary" style="width:auto; padding:8px 12px;" onclick="dirUp()">Up</button>
                 </div>
                 <div class="dir-list" id="dir-list"></div>
-                <div style="margin-top:12px; color:#666; font-size:12px;">
-                    Note: This browser lists folders on the machine running the UI server (restricted to your home directory).
-                </div>
+                <div id="dir-modal-note" style="margin-top:12px; color:#666; font-size:12px;"></div>
             </div>
         </div>
     </div>
@@ -476,6 +620,7 @@
         let RUN_TIMER = null;
         let RUN_T0 = null;
         let RUN_EST_MS = null;
+        let CURRENT_JOB_ID = null;
 
         // Cross-step parameter sync: fields with the same "sync" key share values.
         const SYNCED_VALUES = {};  // { syncKey: value }
@@ -490,6 +635,8 @@
         let DIR_MODAL_KEY = null;
         let DIR_MODAL_PATH = null;
         let DIR_MODAL_ROOT = null;
+        window.FS_NATIVE_PICKER = false;
+        window.FS_NATIVE_HINT = '';
 
         function toggleFullscreen() {
             const body = document.body;
@@ -532,6 +679,26 @@
             badge.textContent = state;
         }
 
+        function setStopButtonVisible(visible) {
+            const b = document.getElementById('stop-job-btn');
+            if (b) b.style.display = visible ? 'block' : 'none';
+        }
+
+        function updateDistortionNotice(stepId) {
+            const el = document.getElementById('distortion-notice');
+            if (!el) return;
+            el.style.display = stepId === 'distortion' ? 'block' : 'none';
+        }
+
+        async function stopRunningJob() {
+            if (!CURRENT_JOB_ID) return;
+            try {
+                await fetch(`/api/jobs/${CURRENT_JOB_ID}/cancel`, { method: 'POST' });
+            } catch (e) {
+                appendLog('\nCould not request stop. Check your connection.\n');
+            }
+        }
+
         function renderParamSummary(params) {
             const keys = Object.keys(params || {});
             document.getElementById('param-summary').textContent = `Captured ${keys.length} params (click to expand)`;
@@ -553,14 +720,15 @@
             }, 250);
         }
 
-        function stopProgress(ok) {
+        function stopProgress(finishState) {
             if (RUN_TIMER) clearInterval(RUN_TIMER);
             RUN_TIMER = null;
             RUN_T0 = null;
             RUN_EST_MS = null;
             document.getElementById('progress-wrap').style.display = 'none';
-            if (ok === true) setRunState('Done');
-            else if (ok === false) setRunState('Failed');
+            if (finishState === 'done') setRunState('Done');
+            else if (finishState === 'failed') setRunState('Failed');
+            else if (finishState === 'cancelled') setRunState('Cancelled');
             else setRunState('Idle');
         }
 
@@ -599,11 +767,9 @@
                 el.type = 'file';
                 el.accept = spec.accept || '*';
             } else if (spec.type === 'dir') {
-                // Render as: Choose button + readonly display (no typing required)
+                // Same layout as native file input: [Browse-style button] [path / placeholder]
                 const row = document.createElement('div');
-                row.style.display = 'flex';
-                row.style.gap = '8px';
-                row.style.alignItems = 'center';
+                row.className = 'dir-picker-row';
 
                 // hidden input holds the actual value for submission
                 const input = document.createElement('input');
@@ -612,32 +778,31 @@
                 input.dataset.key = spec.key;
                 input.dataset.type = 'dir';
 
-                const display = document.createElement('div');
-                display.style.flex = '1';
-                display.style.padding = '10px';
-                display.style.border = '1px solid #ddd';
-                display.style.borderRadius = '4px';
-                display.style.background = '#fff';
-                display.style.fontSize = '0.9em';
-                display.style.color = '#333';
-                display.style.overflow = 'hidden';
-                display.style.textOverflow = 'ellipsis';
-                display.style.whiteSpace = 'nowrap';
-                display.dataset.displayFor = spec.key;
-                display.textContent = input.value ? input.value : '(not selected)';
-
                 const btn = document.createElement('button');
-                btn.className = 'btn btn-secondary';
                 btn.type = 'button';
-                btn.style.width = 'auto';
-                btn.style.padding = '10px 12px';
+                btn.className = 'dir-picker-btn';
                 btn.textContent = 'Choose folder…';
-                btn.onclick = () => openDirModal(spec.key, input.value || null);
+                btn.onclick = () => pickOutputFolder(spec.key, input.value || null);
 
-                row.appendChild(display);
+                const display = document.createElement('div');
+                display.className = 'dir-picker-display';
+                display.dataset.displayFor = spec.key;
+                display.textContent = input.value ? input.value : 'No folder selected';
+
                 row.appendChild(btn);
+                row.appendChild(display);
                 wrap.appendChild(row);
                 wrap.appendChild(input);
+
+                if (window.FS_NATIVE_PICKER) {
+                    btn.title = window.FS_NATIVE_HINT || 'Opens the system folder dialog on this Mac.';
+                    const fb = document.createElement('button');
+                    fb.type = 'button';
+                    fb.className = 'dir-picker-fallback';
+                    fb.textContent = 'Browse server folders instead…';
+                    fb.onclick = () => openDirModal(spec.key, input.value || null);
+                    wrap.appendChild(fb);
+                }
                 container.appendChild(wrap);
                 return;
             } else if (spec.type === 'boolean') {
@@ -771,6 +936,26 @@
             return params;
         }
 
+        async function pickOutputFolder(key, currentPath) {
+            if (window.FS_NATIVE_PICKER) {
+                try {
+                    const r = await fetch('/api/fs/pick_folder_native', { method: 'POST' });
+                    const data = await r.json();
+                    if (data.ok && data.path) {
+                        const input = document.querySelector(`input[data-key="${key}"][data-type="dir"]`);
+                        const disp = document.querySelector(`[data-display-for="${key}"]`);
+                        if (input) input.value = data.path;
+                        if (disp) disp.textContent = data.path;
+                        return;
+                    }
+                    if (data.error === 'cancelled') return;
+                } catch (e) {
+                    /* fall through to server browser */
+                }
+            }
+            openDirModal(key, currentPath || null);
+        }
+
         async function openDirModal(key, startPath) {
             DIR_MODAL_KEY = key;
             const modal = document.getElementById('dir-modal');
@@ -791,6 +976,10 @@
             DIR_MODAL_PATH = data.path;
             DIR_MODAL_ROOT = data.root;
             document.getElementById('dir-current').textContent = data.path;
+            const noteEl = document.getElementById('dir-modal-note');
+            if (noteEl && data.browse_hint) {
+                noteEl.textContent = data.browse_hint;
+            }
 
             const list = document.getElementById('dir-list');
             list.innerHTML = '';
@@ -849,10 +1038,11 @@
 
         function dirUp() {
             if (!DIR_MODAL_PATH) return;
-            // server returns safe path; use parent by trimming one level if possible
-            const parts = DIR_MODAL_PATH.split('/').filter(Boolean);
-            if (parts.length <= 1) return;
-            const up = '/' + parts.slice(0, -1).join('/');
+            let p = DIR_MODAL_PATH.replace(/\/+$/, '');
+            if (p === '') p = '/';
+            if (p === '/') return;
+            const idx = p.lastIndexOf('/');
+            const up = idx <= 0 ? '/' : p.slice(0, idx);
             loadDirListing(up);
         }
 
@@ -906,7 +1096,9 @@
             document.getElementById('essential-title').textContent = `Essential Parameters — ${schema.title || stepId}`;
             document.getElementById('advanced-title').textContent = `⚙️ Advanced Parameters — ${schema.title || stepId}`;
             renderSchema(schema);
-            setLog(`Loaded schema for '${stepId}'.`);
+            // Do not call setLog here: switching steps should not clear the Output log from the last run
+            // (log is reset when the user starts a new run).
+            updateDistortionNotice(stepId);
 
             // Keep the params section visible when switching steps
             const sidebar = document.querySelector('.sidebar');
@@ -932,6 +1124,13 @@
                 body: JSON.stringify({ params })
             });
             const start = await r.json();
+            if (!start.job_id) {
+                setLog(`Run failed: ${JSON.stringify(start)}\n`);
+                stopProgress();
+                return;
+            }
+            CURRENT_JOB_ID = start.job_id;
+            setStopButtonVisible(true);
             setLog(`Job ${start.job_id} submitted. Waiting for output…\n`);
             await pollJob(start.job_id, ACTIVE_STEP_ID, params);
         }
@@ -959,6 +1158,13 @@
                 })
             });
             const start = await r.json();
+            if (!start.job_id) {
+                setLog(`Pipeline failed: ${JSON.stringify(start)}\n`);
+                stopProgress();
+                return;
+            }
+            CURRENT_JOB_ID = start.job_id;
+            setStopButtonVisible(true);
             setLog(`Job ${start.job_id} submitted. Waiting for output…\n`);
             await pollJob(start.job_id, ACTIVE_STEP_ID, params);
         }
@@ -1002,8 +1208,10 @@
                     document.getElementById('progress-left').textContent = `Running… (no progress reported yet)`;
                 }
 
-                if (j.status === 'done' || j.status === 'failed') {
-                    stopProgress(j.status === 'done');
+                if (j.status === 'done' || j.status === 'failed' || j.status === 'cancelled') {
+                    stopProgress(j.status);
+                    CURRENT_JOB_ID = null;
+                    setStopButtonVisible(false);
                     return;
                 }
                 await new Promise(res => setTimeout(res, 500));
@@ -1019,7 +1227,23 @@
             }
         }
 
+        async function loadFsBrowseNote() {
+            try {
+                const r = await fetch('/api/fs/config');
+                const c = await r.json();
+                window.FS_NATIVE_PICKER = !!c.native_folder_picker;
+                window.FS_NATIVE_HINT = c.native_folder_hint || '';
+                const noteEl = document.getElementById('dir-modal-note');
+                if (noteEl && c.browse_hint) {
+                    noteEl.textContent = c.browse_hint;
+                }
+            } catch (e) {
+                /* ignore */
+            }
+        }
+
         window.onload = async function() {
+            await loadFsBrowseNote();
             await loadSchemaDebug();
         };
     </script>

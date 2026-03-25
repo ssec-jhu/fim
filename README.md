@@ -63,28 +63,33 @@ The container runs **uvicorn** on **`0.0.0.0:8000`** with **CPU** PyTorch from P
 
 #### For users (run + update)
 
+The web UI’s **Choose folder…** control lists directories **inside the container**, not on your laptop directly. The image uses **`/data`** as the browse root: map a **host folder** to **`/data`** so you can pick a path that writes to your machine.
+
 Use the published image from GHCR:
 
 ```bash
-# Run
-docker run --rm -p 8000:8000 ghcr.io/ssec-jhu/fim:latest
+# Run (replace ~/fim-output with where you want results on your computer)
+mkdir -p ~/fim-output
+docker run --rm -p 8000:8000 -v ~/fim-output:/data ghcr.io/ssec-jhu/fim:latest
 ```
 
-Open **http://localhost:8000**.
+Open **http://localhost:8000**. In the UI, use **Choose folder…** under **`/data`** (or type e.g. `/data/my-run` as `out_dir`).
 
 ```bash
 # Update to newest image
 docker pull ghcr.io/ssec-jhu/fim:latest
 
 # Re-run with the updated image
-docker run --rm -p 8000:8000 ghcr.io/ssec-jhu/fim:latest
+docker run --rm -p 8000:8000 -v ~/fim-output:/data ghcr.io/ssec-jhu/fim:latest
 ```
 
 Use a different host port if needed:
 
 ```bash
-docker run --rm -p 8080:8000 ghcr.io/ssec-jhu/fim:latest
+docker run --rm -p 8080:8000 -v ~/fim-output:/data ghcr.io/ssec-jhu/fim:latest
 ```
+
+**Docker Compose:** `docker compose up` maps **`./fim-docker-data` → `/data`** by default (override with env **`FIM_HOST_DATA_DIR`**).
 
 #### For developers (build + publish)
 
@@ -92,7 +97,8 @@ Build and test locally:
 
 ```bash
 docker build -t fim:local .
-docker run --rm -p 8000:8000 fim:local
+mkdir -p ./fim-docker-data
+docker run --rm -p 8000:8000 -v "$(pwd)/fim-docker-data:/data" fim:local
 ```
 
 Or use Compose for local development:
@@ -111,7 +117,7 @@ docker push ghcr.io/ssec-jhu/fim:latest
 
 Key files: `Dockerfile`, `docker-compose.yml`, `.dockerignore`.
 
-To persist outputs on host storage, mount a local folder (see the commented `volumes` example in `docker-compose.yml`) and use that folder as `out_dir` in the UI.
+Advanced: set **`FIM_FS_LIST_ROOT`** if you mount data somewhere other than **`/data`** (must match the in-container path).
 
 **GPU / CUDA:** The default image is CPU-only. GPU images need a CUDA base image and matching PyTorch wheels.
 

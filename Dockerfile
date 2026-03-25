@@ -21,7 +21,12 @@ RUN pip install --upgrade pip \
     && pip install .
 
 RUN useradd --create-home --shell /bin/bash --uid 1000 fim \
-    && chown -R fim:fim /app
+    && chown -R fim:fim /app \
+    && mkdir -p /data \
+    && chown fim:fim /data
+
+# Folder picker and job outputs: map a host directory to /data (see README / docker-compose).
+ENV FIM_FS_LIST_ROOT=/data
 
 USER fim
 

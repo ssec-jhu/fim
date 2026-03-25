@@ -72,6 +72,18 @@ class TestJobManager:
         mgr = JobManager()
         mgr._update("nonexistent", lambda j: setattr(j, "status", "running"))  # should not raise
 
+    def test_cancel_running_job(self):
+        mgr = JobManager()
+        mgr.create("cx")
+        mgr._update("cx", lambda j: setattr(j, "status", "running"))
+        assert mgr.cancel("cx") is True
+        assert mgr.get("cx").cancel_event.is_set()
+
+    def test_cancel_not_running_returns_false(self):
+        mgr = JobManager()
+        mgr.create("cy")
+        assert mgr.cancel("cy") is False
+
     @patch("fim.app.jobs.run_step_streaming")
     def test_start_step(self, mock_stream):
         mock_stream.return_value = RunResult(
@@ -115,7 +127,14 @@ class TestJobManager:
     @patch("fim.app.jobs.run_step_streaming")
     def test_start_step_with_progress(self, mock_stream):
         def streaming_with_callback(
-            step, params, *, on_stdout=None, on_stderr=None, env_overrides=None, extra_cli_args=None
+            step,
+            params,
+            *,
+            on_stdout=None,
+            on_stderr=None,
+            env_overrides=None,
+            extra_cli_args=None,
+            cancel_event=None,
         ):
             if on_stdout:
                 on_stdout("FIM_PROGRESS iter=3 total=10\n")

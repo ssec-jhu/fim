@@ -44,6 +44,22 @@ class TestApp:
         if data.get("methods") is not None:
             assert isinstance(data["methods"], dict)
 
+    def test_api_fs_config(self, app_client):
+        response = app_client.get("/api/fs/config")
+        assert response.status_code == 200
+        data = response.json()
+        assert "browse_root" in data
+        assert "browse_hint" in data
+        assert isinstance(data["browse_hint"], str)
+        assert "native_folder_picker" in data
+        assert isinstance(data["native_folder_picker"], bool)
+
+    def test_api_pick_folder_native_unavailable(self, app_client, monkeypatch):
+        monkeypatch.setattr("fim.app.main.native_folder_picker_available", lambda: False)
+        response = app_client.post("/api/fs/pick_folder_native")
+        assert response.status_code == 200
+        assert response.json() == {"ok": False, "error": "unavailable"}
+
     def test_api_fs_list_home(self, app_client):
         response = app_client.get("/api/fs/list")
         assert response.status_code == 200
@@ -52,6 +68,7 @@ class TestApp:
         assert "root" in data
         assert "dirs" in data
         assert isinstance(data["dirs"], list)
+        assert "browse_hint" in data
 
     def test_api_fs_list_with_path(self, app_client, tmp_path):
         sub = tmp_path / "subdir"
@@ -78,6 +95,19 @@ class TestApp:
         response = app_client.get("/api/fs/list", params={"path": str(f)})
         data = response.json()
         assert data["path"] == str(tmp_path)
+
+    def test_api_fs_list_browse_root_defaults_and_clamps(self, app_client, tmp_path, monkeypatch):
+        monkeypatch.setenv("FIM_FS_LIST_ROOT", str(tmp_path))
+        (tmp_path / "inside").mkdir()
+        r0 = app_client.get("/api/fs/list")
+        assert r0.status_code == 200
+        d0 = r0.json()
+        assert d0["path"] == str(tmp_path)
+        assert d0["browse_root"] == str(tmp_path)
+        r1 = app_client.get("/api/fs/list", params={"path": "/etc"})
+        assert r1.status_code == 200
+        d1 = r1.json()
+        assert d1["path"] == str(tmp_path)
 
     def test_api_upload(self, app_client):
         response = app_client.post(
@@ -145,3 +175,11 @@ class TestApp:
         assert data["job_id"] == "j1"
         assert data["status"] == "running"
         assert data["log"] == "some log"
+
+    @patch("fim.app.main.job_mgr")
+    def test_api_cancel_job(self, mock_mgr, app_client):
+        mock_mgr.cancel.return_value = True
+        response = app_client.post("/api/jobs/abc123/cancel")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+        mock_mgr.cancel.assert_called_once_with("abc123")

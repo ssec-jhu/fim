@@ -15,6 +15,8 @@ services:
     environment:
       # Cleaner logs when the UI runs pipeline jobs (optional)
       FIM_UI_NO_TQDM: ${FIM_UI_NO_TQDM:-0}
-    # Optional: persist job outputs written under a host directory
-    # volumes:
-    #   - ./fim-docker-data:/data
+      # UI folder browser starts here (must match the volume mount below)
+      FIM_FS_LIST_ROOT: ${FIM_FS_LIST_ROOT:-/data}
+    volumes:
+      # Host folder visible inside the container as /data (pick it in “Choose folder…”)
+      - ${FIM_HOST_DATA_DIR:-./fim-docker-data}:/data
