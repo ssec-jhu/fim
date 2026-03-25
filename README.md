@@ -36,43 +36,90 @@ with dynamically rendered parameters.
 Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html#installing) or [Anaconda](https://docs.anaconda.com/free/anaconda/install/index.html) if you do not have `conda` yet.
 
 ```bash
-# Download and install either miniconda or anaconda first
-# See: https://docs.conda.io/en/latest/miniconda.html#installing
-# Or: https://docs.anaconda.com/free/anaconda/install/index.html
+# macOS: xcode-select --install
+# Ubuntu/Debian: sudo apt-get install -y git
 
-# 1. Create conda env with Python
+# 1) Create and activate environment (Conda example)
 conda create -n fim_env python=3.11
 conda activate fim_env
 
-# 2. Clone the repo
+# 2) Clone the repo
 git clone https://github.com/ssec-jhu/fim.git
 cd fim
 
-# 3. Install FIM and all dependencies
+# 3) Install FIM and dependencies
 pip install -e .
 ```
 
-If you already have Python 3.11+ (venv or system), skip step 1 and run steps 2–3 in that environment.
+If you already have Python 3.11+ in a venv/system environment, skip step 1 and run steps 2-3 there.
 
-Run **`fim-ui`** and open **http://127.0.0.1:8000/** (`fim-ui --port 8001` if 8000 is busy).
+Run `fim-ui` and open **http://127.0.0.1:8000/** (`fim-ui --port 8001` if port 8000 is busy).
 
 For **CUDA** on Linux/NVIDIA, install a matching PyTorch build from [pytorch.org](https://pytorch.org) first, then run `pip install -e .` again.
 
-### Docker
+### Docker (web UI deployment)
+
+The container runs **uvicorn** on **`0.0.0.0:8000`** with **CPU** PyTorch from PyPI. A health check hits **`GET /healthz`**.
+
+#### For users (run + update)
+
+The web UI’s **Choose folder…** control lists directories **inside the container**, not on your laptop directly. The image uses **`/data`** as the browse root: map a **host folder** to **`/data`** so you can pick a path that writes to your machine.
+
+Use the published image from GHCR:
 
 ```bash
-docker build -t fim .
-docker run -d -p 8000:8000 fim
+# Run (replace ~/fim-output with where you want results on your computer)
+mkdir -p ~/fim-output
+docker run --rm -p 8000:8000 -v ~/fim-output:/data ghcr.io/ssec-jhu/fim:latest
 ```
 
-Or use a pre-built image:
+Open **http://localhost:8000**. In the UI, use **Choose folder…** under **`/data`** (or type e.g. `/data/my-run` as `out_dir`).
 
 ```bash
+# Update to newest image
 docker pull ghcr.io/ssec-jhu/fim:latest
-docker run -d -p 8000:8000 ghcr.io/ssec-jhu/fim:latest
+
+# Re-run with the updated image
+docker run --rm -p 8000:8000 -v ~/fim-output:/data ghcr.io/ssec-jhu/fim:latest
 ```
 
-The container serves the web UI on port **8000**.
+Use a different host port if needed:
+
+```bash
+docker run --rm -p 8080:8000 -v ~/fim-output:/data ghcr.io/ssec-jhu/fim:latest
+```
+
+**Docker Compose:** `docker compose up` maps **`./fim-docker-data` → `/data`** by default (override with env **`FIM_HOST_DATA_DIR`**).
+
+#### For developers (build + publish)
+
+Build and test locally:
+
+```bash
+docker build -t fim:local .
+mkdir -p ./fim-docker-data
+docker run --rm -p 8000:8000 -v "$(pwd)/fim-docker-data:/data" fim:local
+```
+
+Or use Compose for local development:
+
+```bash
+docker compose up --build
+```
+
+Publish to GHCR (maintainers only):
+
+```bash
+docker login ghcr.io
+docker tag fim:local ghcr.io/ssec-jhu/fim:latest
+docker push ghcr.io/ssec-jhu/fim:latest
+```
+
+Key files: `Dockerfile`, `docker-compose.yml`, `.dockerignore`.
+
+Advanced: set **`FIM_FS_LIST_ROOT`** if you mount data somewhere other than **`/data`** (must match the in-container path).
+
+**GPU / CUDA:** The default image is CPU-only. GPU images need a CUDA base image and matching PyTorch wheels.
 
 ---
 
@@ -84,11 +131,11 @@ The container serves the web UI on port **8000**.
 fim-ui
 ```
 
-Same as `uvicorn fim.app.main:app --reload`. Use `--host 0.0.0.0` to listen on all interfaces and `--no-reload` in production.
+Equivalent to `uvicorn fim.app.main:app --reload`.
+Use `--host 0.0.0.0` to listen on all interfaces and `--no-reload` in production.
 
-Parameters are rendered
-dynamically from `fim/app/schemas/fim_params.schema.json` — update the schema
-to add or remove parameters without editing UI code.
+Parameters are rendered dynamically from `fim/app/schemas/fim_params.schema.json`.
+Update that schema to add or remove parameters without editing UI code.
 
 ### CLI (schema-driven)
 
@@ -117,7 +164,7 @@ python -m fim.refactor.main_VFM \
 
 ## Testing
 
-Install dev dependencies:
+Install developer dependencies:
 
 ```bash
 pip install -e ".[dev]"
@@ -135,7 +182,7 @@ tox -e check-style  # lint only
 
 ```bash
 pytest .                                        # all tests
-pytest tests/test_util.py::test_base_dummy      # single test
+pytest fim/tests/test_util.py::test_base_dummy  # single test
 ruff check . --select E --select F --select I   # lint
 bandit --severity-level=medium -r fim            # security
 ```

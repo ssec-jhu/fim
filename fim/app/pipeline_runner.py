@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -98,9 +99,13 @@ def run_step_streaming(
     on_stderr=None,
     env_overrides: dict[str, str] | None = None,
     extra_cli_args: list[str] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> RunResult:
     """Run a step and stream output line-by-line via callbacks."""
     params = normalize_params(step, params)
+
+    if cancel_event and cancel_event.is_set():
+        return RunResult(ok=False, returncode=-1, stdout="", stderr="", command=[])
 
     if step.step_id == "tracking":
         method = params.pop("method", "physics")
@@ -134,6 +139,18 @@ def run_step_streaming(
         env.update(env_overrides)
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, env=env)
 
+    if cancel_event:
+
+        def _terminate_when_cancelled() -> None:
+            cancel_event.wait()
+            try:
+                if p.poll() is None:
+                    p.terminate()
+            except OSError:
+                pass
+
+        threading.Thread(target=_terminate_when_cancelled, daemon=True).start()
+
     out_lines: list[str] = []
     err_lines: list[str] = []
 
@@ -145,8 +162,6 @@ def run_step_streaming(
             if cb:
                 cb(line)
         stream.close()
-
-    import threading
 
     t1 = threading.Thread(target=_reader, args=(p.stdout, out_lines, on_stdout), daemon=True)
     t2 = threading.Thread(target=_reader, args=(p.stderr, err_lines, on_stderr), daemon=True)
@@ -203,6 +218,7 @@ def run_pipeline_streaming(
     on_stdout=None,
     on_stderr=None,
     env_overrides_by_step: dict[str, dict[str, str]] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> PipelineResult:
     """Run steps sequentially and stream output with step_id."""
     params_by_step = params_by_step or {}
@@ -212,6 +228,8 @@ def run_pipeline_streaming(
     results: list[RunResult] = []
 
     for step in steps:
+        if cancel_event and cancel_event.is_set():
+            return PipelineResult(ok=False, results=results)
         params = params_by_step.get(step.step_id, {})
         env_overrides = (env_overrides_by_step or {}).get(step.step_id)
         extra = ["--skip_grids"] if skip_grids and step.step_id == "tracking" else None
@@ -222,6 +240,7 @@ def run_pipeline_streaming(
             on_stderr=(lambda ln, sid=step.step_id: on_stderr(sid, ln)) if on_stderr else None,
             env_overrides=env_overrides,
             extra_cli_args=extra,
+            cancel_event=cancel_event,
         )
         results.append(res)
         if not res.ok:

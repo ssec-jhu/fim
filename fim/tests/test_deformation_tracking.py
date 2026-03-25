@@ -58,6 +58,37 @@ def _base_argv(out: Path, *, num_iter: str = "2", batch_size: str = "64") -> lis
 
 
 @pytest.mark.unit
+class TestUnravelFlatIndices:
+    def test_numpy_path_when_torch_api_absent(self, monkeypatch) -> None:
+        pytest.importorskip("torch")
+        import torch
+
+        monkeypatch.setattr(torch, "unravel_index", None, raising=False)
+        idx = torch.tensor([0, 5], dtype=torch.long)
+        x, y, z = dt._unravel_flat_indices(idx, (2, 3, 4))
+        assert x.tolist() == [0, 0]
+        assert y.tolist() == [0, 1]
+        assert z.tolist() == [0, 1]
+
+    def test_torch_callable_branch(self, monkeypatch) -> None:
+        pytest.importorskip("torch")
+        import torch
+
+        used: list[int] = []
+
+        def fake_unravel(idx, shape):
+            used.append(1)
+            exp = np.unravel_index(idx.detach().cpu().numpy().astype(np.int64), shape)
+            return tuple(torch.as_tensor(x, device=idx.device, dtype=torch.long) for x in exp)
+
+        monkeypatch.setattr(torch, "unravel_index", fake_unravel, raising=False)
+        idx = torch.tensor([5], dtype=torch.long)
+        x, y, z = dt._unravel_flat_indices(idx, (2, 3, 4))
+        assert used == [1]
+        assert int(x[0]) == 0 and int(y[0]) == 1 and int(z[0]) == 1
+
+
+@pytest.mark.unit
 class TestAxisAngleRotmat:
     def test_zero_angle_is_identity(self) -> None:
         axis = torch.tensor([0.0, 0.0, 1.0], dtype=torch.float32)
@@ -125,6 +156,29 @@ class TestSmoothDisplacementField:
         u = np.zeros((4, 4, 4), dtype=np.float32)
         with pytest.raises(ValueError, match="Unknown smoothing method"):
             dt.smooth_displacement_field(u, "not_a_method", sigma=1.0)
+
+
+@pytest.mark.unit
+class TestUnlinkIfExists:
+    def test_removes_file(self, tmp_path: Path) -> None:
+        p = tmp_path / "old.npy"
+        p.write_bytes(b"x")
+        dt._unlink_if_exists(p)
+        assert not p.exists()
+
+    def test_missing_path_no_op(self, tmp_path: Path) -> None:
+        dt._unlink_if_exists(tmp_path / "nope.npy")
+
+    def test_oserror_swallowed(self, tmp_path: Path) -> None:
+        p = tmp_path / "blocked"
+        p.write_bytes(b"x")
+
+        def boom(*_a, **_k):
+            raise OSError("no")
+
+        with patch.object(Path, "is_file", return_value=True):
+            with patch.object(Path, "unlink", boom):
+                dt._unlink_if_exists(p)
 
 
 @pytest.mark.unit

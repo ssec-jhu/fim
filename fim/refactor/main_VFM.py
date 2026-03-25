@@ -195,6 +195,10 @@ def load_common_fields(folder):
     If X.npy is missing but grid_params.json exists (pipeline mode with --skip_grids),
     the coordinate grids and volume_matrix are created on-the-fly from the metadata.
 
+    If X.npy exists but was left over from an older run (different shape than Ux/Uy/Uz),
+    grids are rebuilt from grid_params.json when present. This avoids shape mismatches
+    after tracking with --skip_grids when stale grid .npy files remain in the folder.
+
     Returns:
         X, Y, Z: 3D coordinate grids
         tensor_displacement_list: ndarray of shape (Nx, Ny, Nz, 3, 3)
@@ -204,16 +208,55 @@ def load_common_fields(folder):
     Uy = np.load(f"{folder}/Uy.npy")
     Uz = np.load(f"{folder}/Uz.npy")
 
+    disp_shape = Ux.shape
+    if Uy.shape != disp_shape or Uz.shape != disp_shape:
+        raise ValueError(f"Ux/Uy/Uz shape mismatch: {Ux.shape}, {Uy.shape}, {Uz.shape}")
+
     x_path = os.path.join(folder, "X.npy")
+    y_path = os.path.join(folder, "Y.npy")
+    z_path = os.path.join(folder, "Z.npy")
+    vol_path = os.path.join(folder, "volume_matrix.npy")
     grid_params_path = os.path.join(folder, "grid_params.json")
 
-    if os.path.exists(x_path):
-        X = np.load(f"{folder}/X.npy")
-        Y = np.load(f"{folder}/Y.npy")
-        Z = np.load(f"{folder}/Z.npy")
-        volume_matrix = np.load(f"{folder}/volume_matrix.npy")
+    def _load_arrays_from_disk():
+        return (
+            np.load(x_path),
+            np.load(y_path),
+            np.load(z_path),
+            np.load(vol_path),
+        )
+
+    have_disk_grids = all(os.path.exists(p) for p in (x_path, y_path, z_path, vol_path))
+
+    if have_disk_grids:
+        X, Y, Z, volume_matrix = _load_arrays_from_disk()
+        same_shape = (
+            X.shape == disp_shape
+            and Y.shape == disp_shape
+            and Z.shape == disp_shape
+            and volume_matrix.shape == disp_shape
+        )
+        if not same_shape:
+            logging.warning(
+                "Grid files in %s have shapes X%s Y%s Z%s vol%s but displacement fields are %s. "
+                "Rebuilding coordinate grids from grid_params.json (typical cause: --skip_grids run "
+                "with stale X/Y/Z/volume_matrix from an older run).",
+                folder,
+                X.shape,
+                Y.shape,
+                Z.shape,
+                volume_matrix.shape,
+                disp_shape,
+            )
+            if not os.path.exists(grid_params_path):
+                raise ValueError(
+                    f"Displacement arrays have shape {disp_shape} but on-disk grids do not match and "
+                    f"{grid_params_path} is missing. Delete X.npy, Y.npy, Z.npy, volume_matrix.npy in "
+                    f"{folder} or re-run deformation tracking so grid_params.json matches Ux.npy."
+                )
+            X, Y, Z, volume_matrix = _create_grids_from_params(folder, disp_shape)
     elif os.path.exists(grid_params_path):
-        X, Y, Z, volume_matrix = _create_grids_from_params(folder, Ux.shape)
+        X, Y, Z, volume_matrix = _create_grids_from_params(folder, disp_shape)
     else:
         raise FileNotFoundError(
             f"Neither X.npy nor grid_params.json found in {folder}. "

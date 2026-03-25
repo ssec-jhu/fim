@@ -18,11 +18,12 @@ class JobState:
     created_at: float = field(default_factory=time.time)
     started_at: float | None = None
     finished_at: float | None = None
-    status: str = "queued"  # queued|running|done|failed
+    status: str = "queued"  # queued|running|done|failed|cancelled
     step_id: str | None = None
     progress: dict[str, Any] = field(default_factory=dict)
     log: str = ""
     results: list[RunResult] = field(default_factory=list)
+    cancel_event: threading.Event = field(default_factory=threading.Event)
 
     def append_log(self, text: str, limit: int = 200_000) -> None:
         self.log += text
@@ -52,6 +53,16 @@ class JobManager:
                 return
             fn(job)
 
+    def cancel(self, job_id: str) -> bool:
+        """Request cancellation of a running job (terminates subprocess if any)."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job or job.status != "running":
+                return False
+            job.cancel_event.set()
+            job.append_log("\n[Stop requested — terminating process if still running]\n")
+            return True
+
     def start_step(self, job_id: str, step: StepSpec, params: dict[str, Any]) -> None:
         params = normalize_params(step, params)
 
@@ -59,6 +70,9 @@ class JobManager:
             self._update(job_id, lambda j: setattr(j, "status", "running"))
             self._update(job_id, lambda j: setattr(j, "started_at", time.time()))
             self._update(job_id, lambda j: setattr(j, "step_id", step.step_id))
+
+            cancel_ev = self.get(job_id)
+            cancel_event = cancel_ev.cancel_event if cancel_ev else threading.Event()
 
             def on_line(src: str, line: str) -> None:
                 # append to log
@@ -79,6 +93,7 @@ class JobManager:
                 on_stdout=lambda ln: on_line("stdout", ln),
                 on_stderr=lambda ln: on_line("stderr", ln),
                 env_overrides={"FIM_UI_NO_TQDM": "1"},
+                cancel_event=cancel_event,
             )
             # If runner returns early (e.g. "not implemented"), ensure message is visible in log.
             # For normal runs, output is already streamed line-by-line via callbacks.
@@ -89,7 +104,14 @@ class JobManager:
                     self._update(job_id, lambda j: j.append_log(res.stderr))
             self._update(job_id, lambda j: j.results.append(res))
             self._update(job_id, lambda j: setattr(j, "finished_at", time.time()))
-            self._update(job_id, lambda j: setattr(j, "status", "done" if res.ok else "failed"))
+
+            def _set_final_status(j: JobState) -> None:
+                if j.cancel_event.is_set() and not res.ok:
+                    j.status = "cancelled"
+                else:
+                    j.status = "done" if res.ok else "failed"
+
+            self._update(job_id, _set_final_status)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -99,6 +121,9 @@ class JobManager:
         def worker():
             self._update(job_id, lambda j: setattr(j, "status", "running"))
             self._update(job_id, lambda j: setattr(j, "started_at", time.time()))
+
+            cancel_ev = self.get(job_id)
+            cancel_event = cancel_ev.cancel_event if cancel_ev else threading.Event()
 
             def on_line(step_id: str, src: str, line: str) -> None:
                 self._update(job_id, lambda j: setattr(j, "step_id", step_id))
@@ -118,6 +143,7 @@ class JobManager:
                 on_stdout=lambda step_id, ln: on_line(step_id, "stdout", ln),
                 on_stderr=lambda step_id, ln: on_line(step_id, "stderr", ln),
                 env_overrides_by_step={"tracking": {"FIM_UI_NO_TQDM": "1"}},
+                cancel_event=cancel_event,
             )
             # Ensure any non-streamed stderr/stdout is captured (e.g., early "not implemented").
             for r in pres.results:
@@ -128,6 +154,13 @@ class JobManager:
                         self._update(job_id, lambda j, t=r.stderr: j.append_log(t))
             self._update(job_id, lambda j: j.results.extend(pres.results))
             self._update(job_id, lambda j: setattr(j, "finished_at", time.time()))
-            self._update(job_id, lambda j: setattr(j, "status", "done" if pres.ok else "failed"))
+
+            def _set_pipeline_final(j: JobState) -> None:
+                if j.cancel_event.is_set() and not pres.ok:
+                    j.status = "cancelled"
+                else:
+                    j.status = "done" if pres.ok else "failed"
+
+            self._update(job_id, _set_pipeline_final)
 
         threading.Thread(target=worker, daemon=True).start()

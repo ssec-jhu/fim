@@ -25,6 +25,9 @@ Outputs (written to --out_dir):
 - volume_matrix.npy                per-voxel volume weights in m^3, shape (X,Y,Z)
 
 Notes:
+- Reruns always replace outputs: existing U*.npy / grid .npy files in the output folder are
+  removed before writing. With --skip_grids, old X/Y/Z/volume_matrix files are deleted so
+  they cannot mismatch the new displacement fields.
 - dxy_um / dz_um are voxel spacings in microns.
 - Computation internally uses *centered* coordinates for stable rotation estimation,
   but outputs use coordinates starting at 0 (compatible with VFM code that centers later).
@@ -53,6 +56,21 @@ from tqdm.auto import tqdm
 _SIM_TIFF_DIR = Path(__file__).resolve().parent.parent / "test_data" / "simulate"
 DEFAULT_WITHOUT_SPHERE = str(_SIM_TIFF_DIR / "ref_image.tif")
 DEFAULT_WITH_SPHERE = str(_SIM_TIFF_DIR / "def_image.tif")
+
+
+def _unravel_flat_indices(
+    indices: torch.Tensor,
+    shape: tuple[int, ...],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Map flat voxel indices to coordinate tensors (same batch shape as *indices*).
+
+    ``torch.unravel_index`` exists from PyTorch 2.0+; older installs fall back to NumPy.
+    """
+    fn = getattr(torch, "unravel_index", None)
+    if fn is not None:
+        return fn(indices, shape)
+    unr = np.unravel_index(indices.detach().cpu().numpy().astype(np.int64), shape)
+    return tuple(torch.as_tensor(x, device=indices.device, dtype=torch.long) for x in unr)
 
 
 def axis_angle_rotmat(axis: torch.Tensor, angle: torch.Tensor) -> torch.Tensor:
@@ -193,6 +211,15 @@ def estimate_initial_shift(
     return np.array(xy_shift, dtype=np.float64), z_shift
 
 
+def _unlink_if_exists(path: Path) -> None:
+    """Remove a file so the next write always replaces it (handles shape/dtype changes)."""
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError:
+        pass
+
+
 def write_xyz_grids_m(
     out_dir: Path,
     x_axis_m: np.ndarray,
@@ -207,6 +234,8 @@ def write_xyz_grids_m(
     if (len(x_axis_m), len(y_axis_m), len(z_axis_m)) != (nx, ny, nz):
         raise ValueError("Axis lengths do not match volume shape.")
 
+    for name in ("X.npy", "Y.npy", "Z.npy"):
+        _unlink_if_exists(out_dir / name)
     X_mm = open_memmap(out_dir / "X.npy", mode="w+", dtype=dtype, shape=shape)
     Y_mm = open_memmap(out_dir / "Y.npy", mode="w+", dtype=dtype, shape=shape)
     Z_mm = open_memmap(out_dir / "Z.npy", mode="w+", dtype=dtype, shape=shape)
@@ -228,6 +257,7 @@ def write_volume_matrix_m3(
     out_dir: Path, shape: tuple[int, int, int], voxel_volume_m3: float, dtype=np.float32
 ) -> None:
     """Write volume_matrix.npy as disk-backed array filled with a constant voxel volume."""
+    _unlink_if_exists(out_dir / "volume_matrix.npy")
     vol_mm = open_memmap(out_dir / "volume_matrix.npy", mode="w+", dtype=dtype, shape=shape)
     nz = shape[2]
     chunk_z = 8
@@ -296,6 +326,12 @@ def main() -> None:
     )
     p.add_argument("--dxy_um", type=float, default=0.492, help="Voxel size in XY (microns)")
     p.add_argument("--dz_um", type=float, default=3.0, help="Voxel size in Z (microns)")
+    p.add_argument(
+        "--sphere_diameter_mm",
+        type=float,
+        default=0.5,
+        help="Sphere / indenter diameter in mm (metadata; kept in sync with distortion step in the UI).",
+    )
     p.add_argument("--downsamp_xy", type=int, default=2, help="Downsample factor in XY")
     p.add_argument("--downsamp_z", type=int, default=1, help="Downsample factor in Z")
     p.add_argument("--z_start", type=int, default=0, help="Z crop start (in original Z index)")
@@ -457,7 +493,7 @@ def main() -> None:
 
     def forward_model(rand_ind: torch.Tensor) -> torch.Tensor:
         # unravel indices (x,y,z)
-        xyz = torch.unravel_index(rand_ind, stack_with_t.shape)
+        xyz = _unravel_flat_indices(rand_ind, stack_with_t.shape)
 
         # nominal physical coordinates (microns), centered
         delta_r = torch.stack(
@@ -585,7 +621,9 @@ def main() -> None:
         Uy_m = smooth_displacement_field(Uy_m, args.smooth_method, args.smooth_sigma)
         Uz_m = smooth_displacement_field(Uz_m, args.smooth_method, args.smooth_sigma)
 
-    # Save U fields (meters)
+    # Save U fields (meters); remove old files first so reruns always replace (shape may change).
+    for name in ("Ux.npy", "Uy.npy", "Uz.npy"):
+        _unlink_if_exists(out_dir / name)
     np.save(out_dir / "Ux.npy", Ux_m.astype(np.float32, copy=False))
     np.save(out_dir / "Uy.npy", Uy_m.astype(np.float32, copy=False))
     np.save(out_dir / "Uz.npy", Uz_m.astype(np.float32, copy=False))
@@ -605,6 +643,9 @@ def main() -> None:
 
     if args.skip_grids:
         print("Skipping X/Y/Z grids and volume_matrix (--skip_grids)", file=sys.stderr, flush=True)
+        # Do not leave stale grid files from a previous run (would confuse inverse / main_VFM).
+        for name in ("X.npy", "Y.npy", "Z.npy", "volume_matrix.npy"):
+            _unlink_if_exists(out_dir / name)
     else:
         write_xyz_grids_m(out_dir, x_axis_m, y_axis_m, z_axis_m, shape=(nx, ny, nz), dtype=np.float32, chunk_z=8)
         write_volume_matrix_m3(out_dir, shape=(nx, ny, nz), voxel_volume_m3=voxel_volume_m3, dtype=np.float32)

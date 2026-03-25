@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -172,6 +174,101 @@ class TestRunStepStreaming:
         cmd = mock_popen.call_args[0][0]
         assert "--flag" in cmd
 
+    def test_cancel_event_already_set_returns_early(self):
+        step = _make_step("inverse")
+        ev = threading.Event()
+        ev.set()
+        res = run_step_streaming(step, {}, cancel_event=ev)
+        assert not res.ok
+        assert res.returncode == -1
+        assert res.command == []
+
+    @patch("fim.app.pipeline_runner.subprocess.Popen")
+    def test_reader_skips_none_streams(self, mock_popen):
+        mock_proc = MagicMock()
+        mock_proc.stdout = None
+        mock_proc.stderr = None
+        mock_proc.wait.return_value = 0
+        mock_popen.return_value = mock_proc
+        step = _make_step("inverse")
+        res = run_step_streaming(step, {})
+        assert res.ok
+
+    @patch("fim.app.pipeline_runner.subprocess.Popen")
+    def test_cancel_watcher_terminates_process(self, mock_popen):
+        mock_proc = MagicMock()
+        mock_proc.stdout.readline.side_effect = ["", ""]
+        mock_proc.stderr.readline.side_effect = ["", ""]
+        mock_proc.poll.return_value = None
+        cancel_event = threading.Event()
+        step = _make_step("inverse")
+
+        def wait_side():
+            cancel_event.set()
+            time.sleep(0.05)
+            return -15
+
+        mock_proc.wait.side_effect = wait_side
+        mock_popen.return_value = mock_proc
+        run_step_streaming(step, {}, cancel_event=cancel_event)
+        assert mock_proc.terminate.called
+
+    @patch("fim.app.pipeline_runner.subprocess.Popen")
+    def test_cancel_watcher_poll_oserror_swallowed(self, mock_popen):
+        mock_proc = MagicMock()
+        mock_proc.stdout.readline.side_effect = ["", ""]
+        mock_proc.stderr.readline.side_effect = ["", ""]
+        mock_proc.poll.side_effect = OSError("gone")
+        mock_proc.wait.return_value = 0
+        mock_popen.return_value = mock_proc
+        cancel_event = threading.Event()
+        step = _make_step("inverse")
+        cancel_event.set()
+        run_step_streaming(step, {}, cancel_event=cancel_event)
+
+    @patch("fim.app.pipeline_runner.subprocess.Popen")
+    def test_cancel_watcher_terminate_oserror_swallowed(self, mock_popen):
+        mock_proc = MagicMock()
+        mock_proc.stdout.readline.side_effect = ["", ""]
+        mock_proc.stderr.readline.side_effect = ["", ""]
+        mock_proc.poll.return_value = None
+        mock_proc.terminate.side_effect = OSError("gone")
+        cancel_event = threading.Event()
+
+        def wait_side():
+            cancel_event.set()
+            time.sleep(0.05)
+            return 0
+
+        mock_proc.wait.side_effect = wait_side
+        mock_popen.return_value = mock_proc
+        step = _make_step("inverse")
+        run_step_streaming(step, {}, cancel_event=cancel_event)
+
+    @patch("fim.app.pipeline_runner.subprocess.Popen")
+    def test_tracking_physics_streaming_invokes_module(self, mock_popen):
+        mock_proc = MagicMock()
+        mock_proc.stdout.readline.side_effect = [""]
+        mock_proc.stderr.readline.side_effect = [""]
+        mock_proc.wait.return_value = 0
+        mock_popen.return_value = mock_proc
+        step = _make_step(
+            "tracking",
+            common={
+                "essential": [
+                    {"key": "method", "type": "select", "default": "physics", "options": ["physics", "feature"]},
+                ],
+                "advanced": [],
+            },
+            methods={
+                "physics": {"essential": [], "advanced": []},
+                "feature": {"essential": [], "advanced": []},
+            },
+        )
+        run_step_streaming(step, {"method": "physics"})
+        cmd = mock_popen.call_args[0][0]
+        assert "fim.refactor.deformation_tracking" in cmd
+
 
 class TestShouldSkipGrids:
     def test_both_tracking_and_inverse(self):
@@ -265,3 +362,19 @@ class TestRunPipelineStreaming:
             env_overrides_by_step={"tracking": {"FIM_UI_NO_TQDM": "1"}},
         )
         assert mock_stream.call_count == 2
+
+    @patch("fim.app.pipeline_runner.run_step_streaming")
+    def test_mid_pipeline_cancel_returns_early(self, mock_stream):
+        cancel = threading.Event()
+
+        def stream_side_effect(step, params, **kwargs):
+            _ = (step, params)
+            if kwargs.get("cancel_event") is not None:
+                kwargs["cancel_event"].set()
+            return RunResult(ok=True, returncode=0, stdout="", stderr="", command=["c"])
+
+        mock_stream.side_effect = stream_side_effect
+        steps = [_make_step("tracking"), _make_step("inverse")]
+        result = run_pipeline_streaming(steps, {}, cancel_event=cancel)
+        assert not result.ok
+        assert len(result.results) == 1
