@@ -184,9 +184,7 @@ async def api_fs_config():
         "browse_hint": _fs_browse_hint(),
         "native_folder_picker": native,
         "native_folder_hint": (
-            "Opens the macOS folder dialog (server must run on this Mac, not inside Linux Docker)."
-            if native
-            else None
+            "Opens the macOS folder dialog (server must run on this Mac, not inside Linux Docker)." if native else None
         ),
     }
 
