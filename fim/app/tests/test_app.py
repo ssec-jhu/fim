@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import fim.app.main as app_main
+
 from ..main import __version__
 
 
