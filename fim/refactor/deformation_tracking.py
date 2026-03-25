@@ -58,6 +58,21 @@ DEFAULT_WITHOUT_SPHERE = str(_SIM_TIFF_DIR / "ref_image.tif")
 DEFAULT_WITH_SPHERE = str(_SIM_TIFF_DIR / "def_image.tif")
 
 
+def _unravel_flat_indices(
+    indices: torch.Tensor,
+    shape: tuple[int, ...],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Map flat voxel indices to coordinate tensors (same batch shape as *indices*).
+
+    ``torch.unravel_index`` exists from PyTorch 2.0+; older installs fall back to NumPy.
+    """
+    fn = getattr(torch, "unravel_index", None)
+    if fn is not None:
+        return fn(indices, shape)
+    unr = np.unravel_index(indices.detach().cpu().numpy().astype(np.int64), shape)
+    return tuple(torch.as_tensor(x, device=indices.device, dtype=torch.long) for x in unr)
+
+
 def axis_angle_rotmat(axis: torch.Tensor, angle: torch.Tensor) -> torch.Tensor:
     """Rodrigues' rotation formula for axis-angle to rotation matrix."""
     axis_unit = torch.nn.functional.normalize(axis, dim=0)
@@ -478,7 +493,7 @@ def main() -> None:
 
     def forward_model(rand_ind: torch.Tensor) -> torch.Tensor:
         # unravel indices (x,y,z)
-        xyz = torch.unravel_index(rand_ind, stack_with_t.shape)
+        xyz = _unravel_flat_indices(rand_ind, stack_with_t.shape)
 
         # nominal physical coordinates (microns), centered
         delta_r = torch.stack(

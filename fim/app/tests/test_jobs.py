@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from unittest.mock import patch
 
@@ -236,3 +237,82 @@ class TestJobManager:
         job = mgr.get("p3")
         assert "early_out" in job.log
         assert "early_err" in job.log
+
+    @patch("fim.app.jobs.run_step_streaming")
+    def test_start_step_cancelled_sets_status(self, mock_stream):
+        running = threading.Event()
+
+        def side_effect(*_a, cancel_event=None, **_k):
+            running.set()
+            for _ in range(200):
+                if cancel_event is not None and cancel_event.is_set():
+                    break
+                time.sleep(0.01)
+            return RunResult(ok=False, returncode=-1, stdout="", stderr="", command=["cmd"])
+
+        mock_stream.side_effect = side_effect
+        mgr = JobManager()
+        mgr.create("jcan")
+        step = _make_step("inverse")
+        mgr.start_step("jcan", step, {})
+        assert running.wait(timeout=3)
+        assert mgr.cancel("jcan") is True
+        for _ in range(50):
+            time.sleep(0.05)
+            job = mgr.get("jcan")
+            if job and job.status == "cancelled":
+                break
+        assert mgr.get("jcan").status == "cancelled"
+
+    @patch("fim.app.jobs.run_pipeline_streaming")
+    def test_start_pipeline_progress_updates_state(self, mock_pipeline):
+        def fake_run(steps, params, **kwargs):
+            on_stdout = kwargs.get("on_stdout")
+            if on_stdout and steps:
+                on_stdout(steps[0].step_id, "FIM_PROGRESS iter=7 total=77\n")
+            return PipelineResult(
+                ok=True,
+                results=[RunResult(ok=True, returncode=0, stdout="", stderr="", command=["c"])],
+            )
+
+        mock_pipeline.side_effect = fake_run
+        mgr = JobManager()
+        mgr.create("pprog")
+        mgr.start_pipeline("pprog", [_make_step("tracking")], {"tracking": {}})
+        for _ in range(50):
+            time.sleep(0.05)
+            job = mgr.get("pprog")
+            if job and job.status in ("done", "failed", "cancelled"):
+                break
+        job = mgr.get("pprog")
+        assert job.progress.get("iter") == 7
+        assert job.progress.get("total") == 77
+        assert job.progress.get("step_id") == "tracking"
+
+    @patch("fim.app.jobs.run_pipeline_streaming")
+    def test_start_pipeline_cancelled_sets_status(self, mock_pipeline):
+        running = threading.Event()
+
+        def side_effect(*_a, cancel_event=None, **_k):
+            running.set()
+            for _ in range(200):
+                if cancel_event is not None and cancel_event.is_set():
+                    break
+                time.sleep(0.01)
+            return PipelineResult(
+                ok=False,
+                results=[RunResult(ok=False, returncode=-1, stdout="", stderr="", command=["c"])],
+            )
+
+        mock_pipeline.side_effect = side_effect
+        mgr = JobManager()
+        mgr.create("pcan")
+        mgr.start_pipeline("pcan", [_make_step("tracking")], {})
+        assert running.wait(timeout=3)
+        assert mgr.cancel("pcan") is True
+        for _ in range(50):
+            time.sleep(0.05)
+            job = mgr.get("pcan")
+            if job and job.status == "cancelled":
+                break
+        assert mgr.get("pcan").status == "cancelled"

@@ -318,6 +318,62 @@ def test_load_common_fields_missing_files_raises(monkeypatch, tmp_path):
         mvf.load_common_fields(str(folder))
 
 
+def test_load_common_fields_ux_uy_uz_shape_mismatch_raises(monkeypatch, tmp_path):
+    mvf = import_mvf(monkeypatch)
+    folder = tmp_path / "mix"
+    folder.mkdir()
+    np.save(folder / "Ux.npy", np.zeros((2, 2, 2)))
+    np.save(folder / "Uy.npy", np.zeros((2, 2, 2)))
+    np.save(folder / "Uz.npy", np.zeros((3, 2, 2)))
+    np.save(folder / "X.npy", np.zeros((2, 2, 2)))
+    np.save(folder / "Y.npy", np.zeros((2, 2, 2)))
+    np.save(folder / "Z.npy", np.zeros((2, 2, 2)))
+    np.save(folder / "volume_matrix.npy", np.ones((2, 2, 2)))
+    with pytest.raises(ValueError, match="Ux/Uy/Uz shape mismatch"):
+        mvf.load_common_fields(str(folder))
+
+
+def test_load_common_fields_stale_grids_without_grid_params_raises(monkeypatch, tmp_path):
+    """Mismatching on-disk grids and no grid_params.json should error with actionable message."""
+    mvf = import_mvf(monkeypatch)
+    folder = tmp_path / "stale_no_meta"
+    folder.mkdir()
+    nu = 4
+    U = np.zeros((nu, nu, nu), dtype=np.float32)
+    np.save(folder / "Ux.npy", U)
+    np.save(folder / "Uy.npy", U)
+    np.save(folder / "Uz.npy", U)
+    old = 8
+    G = np.zeros((old, old, old))
+    np.save(folder / "X.npy", G)
+    np.save(folder / "Y.npy", G)
+    np.save(folder / "Z.npy", G)
+    np.save(folder / "volume_matrix.npy", np.ones_like(G))
+    with pytest.raises(ValueError, match="grid_params.json is missing"):
+        mvf.load_common_fields(str(folder))
+
+
+def test_load_common_fields_partial_grids_load_from_grid_params_only(monkeypatch, tmp_path):
+    """Only some X/Y/Z files present: rebuild coordinates from grid_params.json."""
+    import json
+
+    mvf = import_mvf(monkeypatch)
+    folder = tmp_path / "partial"
+    folder.mkdir()
+    nu = 3
+    U = np.zeros((nu, nu, nu), dtype=np.float32)
+    np.save(folder / "Ux.npy", U)
+    np.save(folder / "Uy.npy", U)
+    np.save(folder / "Uz.npy", U)
+    np.save(folder / "X.npy", np.zeros((2, 2, 2)))
+    # Missing Y.npy, Z.npy, volume_matrix -> have_disk_grids False
+    meta = {"shape": [nu, nu, nu], "dxy_m": 1e-5, "dz_m": 2e-5, "voxel_volume_m3": 2e-15}
+    (folder / "grid_params.json").write_text(json.dumps(meta))
+    Xo, Yo, Zo, tensor, vol_out = mvf.load_common_fields(str(folder))
+    assert Xo.shape == (nu, nu, nu)
+    assert vol_out.shape == (nu, nu, nu)
+
+
 def test_load_common_fields_stale_grids_rebuilt_from_grid_params(monkeypatch, tmp_path):
     """--skip_grids leaves no new X.npy; stale full-res grids + new downsampled U must still work."""
     import json
