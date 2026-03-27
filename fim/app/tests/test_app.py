@@ -1,10 +1,35 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import fim.app.main as app_main
 
 from ..main import __version__
+
+
+class TestLifespan:
+    def test_lifespan_prints_browser_hint(self, monkeypatch, capsys):
+        monkeypatch.delenv("FIM_SUPPRESS_BROWSER_HINT", raising=False)
+
+        async def _run():
+            async with app_main._lifespan(app_main.app):
+                return None
+
+        asyncio.run(_run())
+        err = capsys.readouterr().err
+        assert "http://localhost:8000" in err
+
+    def test_lifespan_suppressed(self, monkeypatch, capsys):
+        monkeypatch.setenv("FIM_SUPPRESS_BROWSER_HINT", "1")
+
+        async def _run():
+            async with app_main._lifespan(app_main.app):
+                return None
+
+        asyncio.run(_run())
+        err = capsys.readouterr().err
+        assert "localhost:8000" not in err
 
 
 class TestApp:
