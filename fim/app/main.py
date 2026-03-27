@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,22 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _UPLOAD_DIR = Path(tempfile.gettempdir()) / "fim_uploads"
 _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="FIM Pipeline")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Print a user-friendly URL hint for local Docker/browser usage."""
+    if os.environ.get("FIM_SUPPRESS_BROWSER_HINT", "0") == "1":
+        yield
+        return
+    print(
+        "[FIM] Open the UI at http://localhost:8000 (0.0.0.0 in logs means all interfaces).",
+        file=sys.stderr,
+        flush=True,
+    )
+    yield
+
+
+app = FastAPI(title="FIM Pipeline", lifespan=_lifespan)
 job_mgr = JobManager()
 
 

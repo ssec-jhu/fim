@@ -12,6 +12,12 @@ from .steps_registry import StepSpec, normalize_params
 _PROG_RE = re.compile(r"^FIM_PROGRESS\s+iter=(\d+)\s+total=(\d+)\s*$")
 
 
+def _step_banner(step_id: str, title: str | None = None) -> str:
+    """Build a prominent UI log marker for major step transitions."""
+    label = (title or step_id).strip()
+    return f"\n========== START {label.upper()} ==========\n"
+
+
 @dataclass
 class JobState:
     job_id: str
@@ -70,6 +76,7 @@ class JobManager:
             self._update(job_id, lambda j: setattr(j, "status", "running"))
             self._update(job_id, lambda j: setattr(j, "started_at", time.time()))
             self._update(job_id, lambda j: setattr(j, "step_id", step.step_id))
+            self._update(job_id, lambda j: j.append_log(_step_banner(step.step_id, step.title)))
 
             cancel_ev = self.get(job_id)
             cancel_event = cancel_ev.cancel_event if cancel_ev else threading.Event()
@@ -124,8 +131,15 @@ class JobManager:
 
             cancel_ev = self.get(job_id)
             cancel_event = cancel_ev.cancel_event if cancel_ev else threading.Event()
+            step_titles = {s.step_id: s.title for s in steps}
+            current_step_id: str | None = None
 
             def on_line(step_id: str, src: str, line: str) -> None:
+                nonlocal current_step_id
+                if step_id != current_step_id:
+                    current_step_id = step_id
+                    title = step_titles.get(step_id, step_id)
+                    self._update(job_id, lambda j, t=title: j.append_log(_step_banner(step_id, t)))
                 self._update(job_id, lambda j: setattr(j, "step_id", step_id))
                 self._update(job_id, lambda j: j.append_log(f"[{step_id} {src}] {line}"))
                 m = _PROG_RE.match(line.strip())

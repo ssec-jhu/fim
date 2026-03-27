@@ -108,6 +108,7 @@ class TestJobManager:
         assert job.results[0].ok
         assert job.started_at is not None
         assert job.finished_at is not None
+        assert "START INVERSE" in job.log
 
     @patch("fim.app.jobs.run_step_streaming")
     def test_start_step_failure(self, mock_stream):
@@ -177,13 +178,20 @@ class TestJobManager:
 
     @patch("fim.app.jobs.run_pipeline_streaming")
     def test_start_pipeline(self, mock_pipeline):
-        mock_pipeline.return_value = PipelineResult(
-            ok=True,
-            results=[
-                RunResult(ok=True, returncode=0, stdout="s1\n", stderr="", command=["cmd1"]),
-                RunResult(ok=True, returncode=0, stdout="s2\n", stderr="", command=["cmd2"]),
-            ],
-        )
+        def fake_pipeline(steps, params_by_step, **kwargs):  # noqa: ARG001
+            on_stdout = kwargs.get("on_stdout")
+            if on_stdout:
+                on_stdout("tracking", "tracking begin\n")
+                on_stdout("inverse", "inverse begin\n")
+            return PipelineResult(
+                ok=True,
+                results=[
+                    RunResult(ok=True, returncode=0, stdout="s1\n", stderr="", command=["cmd1"]),
+                    RunResult(ok=True, returncode=0, stdout="s2\n", stderr="", command=["cmd2"]),
+                ],
+            )
+
+        mock_pipeline.side_effect = fake_pipeline
         mgr = JobManager()
         mgr.create("p1")
         steps = [_make_step("tracking"), _make_step("inverse")]
@@ -198,6 +206,8 @@ class TestJobManager:
         job = mgr.get("p1")
         assert job.status == "done"
         assert len(job.results) == 2
+        assert "START TRACKING" in job.log
+        assert "START INVERSE" in job.log
 
     @patch("fim.app.jobs.run_pipeline_streaming")
     def test_start_pipeline_failure(self, mock_pipeline):

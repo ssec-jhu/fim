@@ -459,4 +459,4 @@ if __name__ == "__main__":
     import sys
 
     sys.stdout.flush()
-    logging.info(f"Total runtime: {time.time() - start_time:.1f} seconds")
+    logging.info(f"Inverse step runtime: {time.time() - start_time:.1f} seconds")

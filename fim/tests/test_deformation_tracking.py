@@ -272,7 +272,7 @@ class TestMainPipeline:
         assert (tmp_path / "X.npy").exists()
         assert (tmp_path / "run_info.txt").exists()
         captured = capsys.readouterr()
-        assert "Timing" in captured.err
+        assert "Tracking step runtime" in captured.err
         assert "Saved outputs" in captured.out
 
     def test_main_skip_grids(self, tiny_stack: np.ndarray, tmp_path: Path) -> None:
