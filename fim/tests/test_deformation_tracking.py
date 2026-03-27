@@ -58,6 +58,20 @@ def _base_argv(out: Path, *, num_iter: str = "2", batch_size: str = "64") -> lis
 
 
 @pytest.mark.unit
+class TestDisplayInputName:
+    def test_plain_filename_no_underscore(self) -> None:
+        assert dt._display_input_name("plain.tif") == "plain.tif"
+
+    def test_uuid_prefixed_upload_name_is_cleaned(self) -> None:
+        path = "/tmp/fim_uploads/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_def_image.tif"
+        assert dt._display_input_name(path) == "def_image.tif"
+
+    def test_non_uuid_prefix_kept(self) -> None:
+        path = "/tmp/fim_uploads/notauuid_def_image.tif"
+        assert dt._display_input_name(path) == "notauuid_def_image.tif"
+
+
+@pytest.mark.unit
 class TestUnravelFlatIndices:
     def test_numpy_path_when_torch_api_absent(self, monkeypatch) -> None:
         pytest.importorskip("torch")
@@ -272,7 +286,7 @@ class TestMainPipeline:
         assert (tmp_path / "X.npy").exists()
         assert (tmp_path / "run_info.txt").exists()
         captured = capsys.readouterr()
-        assert "Timing" in captured.err
+        assert "Tracking step runtime" in captured.err
         assert "Saved outputs" in captured.out
 
     def test_main_skip_grids(self, tiny_stack: np.ndarray, tmp_path: Path) -> None:

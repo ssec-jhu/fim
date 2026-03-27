@@ -3,6 +3,7 @@
 
 services:
   fim:
+    container_name: fim-app
     build:
       context: .
       dockerfile: Dockerfile

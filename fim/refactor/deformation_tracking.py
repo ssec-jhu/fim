@@ -58,6 +58,17 @@ DEFAULT_WITHOUT_SPHERE = str(_SIM_TIFF_DIR / "ref_image.tif")
 DEFAULT_WITH_SPHERE = str(_SIM_TIFF_DIR / "def_image.tif")
 
 
+def _display_input_name(path: str) -> str:
+    """Return a user-friendly filename for logs (hide temp dirs / upload UUID prefix)."""
+    name = Path(path).name
+    if "_" not in name:
+        return name
+    prefix, rest = name.split("_", 1)
+    if len(prefix) == 32 and all(c in "0123456789abcdef" for c in prefix.lower()):
+        return rest
+    return name
+
+
 def _unravel_flat_indices(
     indices: torch.Tensor,
     shape: tuple[int, ...],
@@ -426,7 +437,13 @@ def main() -> None:
     # ----------------------------
     # Load volumes (fixed ZYX -> XYZ)
     # ----------------------------
+    print(f"Loading TIFF (with sphere): {_display_input_name(args.with_sphere)}", file=sys.stderr, flush=True)
     stack_with_xyz = load_tiff_zyx_to_xyz(args.with_sphere, args.z_start, args.z_end, args.downsamp_xy, args.downsamp_z)
+    print(
+        f"Loading TIFF (without sphere): {_display_input_name(args.without_sphere)}",
+        file=sys.stderr,
+        flush=True,
+    )
     stack_without_xyz = load_tiff_zyx_to_xyz(
         args.without_sphere, args.z_start, args.z_end, args.downsamp_xy, args.downsamp_z
     )
@@ -436,6 +453,7 @@ def main() -> None:
         raise ValueError("Empty volume after crop/downsample.")
 
     nx, ny, nz = stack_with_xyz.shape
+    print(f"Loaded preprocessed volumes with shape (X,Y,Z)=({nx}, {ny}, {nz})", file=sys.stderr, flush=True)
     t_load_s = time.perf_counter() - t0_total
 
     # ----------------------------
@@ -530,7 +548,9 @@ def main() -> None:
     progress_every = int(args.progress_every) if args.progress_every is not None else 0
     if progress_every > 0 and progress_every > args.num_iter:
         progress_every = 1
-    for i in tqdm(range(args.num_iter), desc="optim", disable=ui_no_tqdm):
+    # Keep progress bar deterministic (no ETA), since ETA can fluctuate heavily with batch sampling/GPU variance.
+    bar_fmt = "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}"
+    for i in tqdm(range(args.num_iter), desc="optim", disable=ui_no_tqdm, bar_format=bar_fmt):
         rand_ind = torch.randint(total_vox, (args.batch_size,), device=device)
         mse = forward_model(rand_ind)
         loss = mse
@@ -622,6 +642,7 @@ def main() -> None:
         Uz_m = smooth_displacement_field(Uz_m, args.smooth_method, args.smooth_sigma)
 
     # Save U fields (meters); remove old files first so reruns always replace (shape may change).
+    print(f"Saving displacement fields (Ux/Uy/Uz) to: {out_dir}", file=sys.stderr, flush=True)
     for name in ("Ux.npy", "Uy.npy", "Uz.npy"):
         _unlink_if_exists(out_dir / name)
     np.save(out_dir / "Ux.npy", Ux_m.astype(np.float32, copy=False))
@@ -647,6 +668,7 @@ def main() -> None:
         for name in ("X.npy", "Y.npy", "Z.npy", "volume_matrix.npy"):
             _unlink_if_exists(out_dir / name)
     else:
+        print("Saving X/Y/Z grids and volume_matrix ...", file=sys.stderr, flush=True)
         write_xyz_grids_m(out_dir, x_axis_m, y_axis_m, z_axis_m, shape=(nx, ny, nz), dtype=np.float32, chunk_z=8)
         write_volume_matrix_m3(out_dir, shape=(nx, ny, nz), voxel_volume_m3=voxel_volume_m3, dtype=np.float32)
 
@@ -676,7 +698,7 @@ def main() -> None:
     sec_per_iter = (t_opt_s / args.num_iter) if args.num_iter else float("nan")
     print(
         (
-            "Timing (seconds): "
+            "Tracking step runtime (seconds): "
             f"load={t_load_s:.2f}, optimize={t_opt_s:.2f} ({sec_per_iter:.4f} s/iter), "
             f"save+post={t_save_s:.2f}, total={t_total_s:.2f}"
         ),

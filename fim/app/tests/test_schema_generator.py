@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 import textwrap
 from unittest.mock import patch
 
@@ -10,6 +11,11 @@ from fim.app.schema_generator import (
     _literal,
     _option_value,
     _prune_select_options,
+    _repo_root,
+    _schema_path,
+    _update_param,
+    generate,
+    main,
     merge_step_params,
     scan_argparse_file,
     sync_step_params,
@@ -34,6 +40,13 @@ class TestLiteral:
 
         node = ast.BinOp(left=ast.Constant(value=1), op=ast.Add(), right=ast.Constant(value=2))
         assert _literal(node) is None
+
+
+class TestPaths:
+    def test_repo_root_and_schema_path(self):
+        root = _repo_root()
+        assert root.name == "fim"
+        assert _schema_path() == root / "fim" / "app" / "schemas" / "fim_params.schema.json"
 
 
 class TestInferUIType:
@@ -112,6 +125,19 @@ class TestScanArgparseFile:
         )
         result = scan_argparse_file(py)
         assert "kvs" in result
+
+    def test_ignores_kwarg_unpack(self, tmp_path):
+        py = tmp_path / "script.py"
+        py.write_text(
+            textwrap.dedent("""\
+            import argparse
+            parser = argparse.ArgumentParser()
+            extra = {"default": 1}
+            parser.add_argument("--alpha", **extra)
+            """)
+        )
+        result = scan_argparse_file(py)
+        assert "alpha" in result
 
 
 class TestOptionValue:
@@ -255,6 +281,18 @@ class TestMergeStepParams:
         merge_step_params(step, scanned)
         assert step["methods"]["m1"]["essential"][0]["default"] == 99
 
+    def test_update_param_sets_plain_select_options(self):
+        existing = {"key": "model", "type": "select", "options": ["old"]}
+        scanned = ArgSpec(key="model", type="select", options=["a", "b"])
+        _update_param(existing, scanned)
+        assert existing["options"] == ["a", "b"]
+
+    def test_update_param_sets_label_when_missing(self):
+        existing = {"key": "alpha", "type": "number"}
+        scanned = ArgSpec(key="alpha", type="number", help="Alpha label")
+        _update_param(existing, scanned)
+        assert existing["label"] == "Alpha label"
+
 
 class TestSyncStepParams:
     def test_prunes_select_options(self):
@@ -313,13 +351,17 @@ class TestSyncStepParams:
         sync_step_params(step, scanned)
         assert "m1" in step["methods"]
 
+    def test_select_param_without_key_is_ignored(self):
+        step = {"essential": [{"type": "select", "options": ["a", "b"]}], "advanced": []}
+        scanned = {}
+        msgs = sync_step_params(step, scanned)
+        assert msgs == []
+
 
 class TestGenerate:
     @patch("fim.app.schema_generator._schema_path")
     @patch("fim.app.schema_generator._repo_root")
     def test_generate_reads_schema(self, mock_root, mock_schema, tmp_path):
-        from fim.app.schema_generator import generate
-
         schema = {
             "version": "1",
             "steps": {
@@ -341,8 +383,6 @@ class TestGenerate:
     @patch("fim.app.schema_generator._schema_path")
     @patch("fim.app.schema_generator._repo_root")
     def test_generate_write(self, mock_root, mock_schema, tmp_path):
-        from fim.app.schema_generator import generate
-
         schema = {"version": "1", "steps": {}}
         schema_file = tmp_path / "schema.json"
         schema_file.write_text(json.dumps(schema))
@@ -352,3 +392,60 @@ class TestGenerate:
         generate(write=True, sync=False)
         data = json.loads(schema_file.read_text())
         assert "steps" in data
+
+    @patch("fim.app.schema_generator._schema_path")
+    def test_generate_invalid_steps_type_raises(self, mock_schema, tmp_path):
+        schema_file = tmp_path / "schema.json"
+        schema_file.write_text(json.dumps({"version": "1", "steps": []}))
+        mock_schema.return_value = schema_file
+        try:
+            generate(write=False, sync=False)
+            assert False, "Expected ValueError"
+        except ValueError as exc:
+            assert "schema.steps must be an object" in str(exc)
+
+    @patch("fim.app.schema_generator._schema_path")
+    @patch("fim.app.schema_generator._repo_root")
+    @patch("fim.app.schema_generator.scan_argparse_file")
+    def test_generate_sync_prints_messages(self, mock_scan, mock_root, mock_schema, tmp_path, capsys):
+        schema = {
+            "version": "1",
+            "steps": {
+                "inverse": {
+                    "title": "Inverse",
+                    "common": {
+                        "essential": [{"key": "model", "type": "select", "options": ["old", "new"]}],
+                        "advanced": [],
+                    },
+                    "advanced": [],
+                    "methods": {"old": {}, "new": {}},
+                }
+            },
+        }
+        schema_file = tmp_path / "schema.json"
+        schema_file.write_text(json.dumps(schema))
+        mock_schema.return_value = schema_file
+        mock_root.return_value = tmp_path
+        mock_scan.return_value = {"model": ArgSpec(key="model", type="select", options=["new"])}
+
+        # Make the mapped file "exist" so generate enters scan/sync branch.
+        (tmp_path / "fim" / "refactor").mkdir(parents=True)
+        (tmp_path / "fim" / "refactor" / "main_VFM.py").write_text("x")
+
+        generate(write=False, sync=True)
+        out = capsys.readouterr().out
+        assert "[sync] inverse:" in out
+
+
+class TestMainEntry:
+    @patch("fim.app.schema_generator.generate")
+    @patch("sys.argv", ["prog"])
+    def test_main_prints_json_when_not_write(self, mock_generate, capsys):
+        mock_generate.return_value = {"version": "1", "steps": {}}
+        main()
+        out = capsys.readouterr().out
+        assert '"steps": {}' in out
+
+    @patch("sys.argv", ["schema_generator.py"])
+    def test_name_main_guard(self):
+        runpy.run_module("fim.app.schema_generator", run_name="__main__", alter_sys=False)
