@@ -98,6 +98,23 @@
         .step.completed .step-number { background: #28a745; }
         .step-title { font-weight: bold; margin-bottom: 5px; }
         .step-description { font-size: 0.9em; color: #666; }
+        .workflow-steps .step.step-disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            pointer-events: none;
+        }
+        /* While a job runs, parameter panels are read-only */
+        .sidebar.run-locked #essential-params,
+        .sidebar.run-locked #advanced-params {
+            pointer-events: none;
+            user-select: none;
+            opacity: 0.88;
+        }
+        .sidebar.run-locked details.advanced-options > summary {
+            pointer-events: none;
+            cursor: default;
+            opacity: 0.75;
+        }
         @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
 
         .main-content {
@@ -206,6 +223,12 @@
             cursor: pointer;
             transition: all 0.3s;
             font-weight: 600;
+        }
+        .btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            transform: none !important;
+            box-shadow: none !important;
         }
         .btn-primary {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -526,11 +549,11 @@
                     Runs will fail fast (no script). Use <strong>Tracking</strong> or <strong>Inverse</strong>, or start the pipeline from step 2.
                 </div>
 
-                <button class="btn btn-primary" style="margin-top: 20px;" onclick="runSelectedStep()">
+                <button type="button" class="btn btn-primary" id="run-step-btn" style="margin-top: 20px;" onclick="runSelectedStep()">
                     ▶️ Run Selected Step
                 </button>
 
-                <button class="btn btn-primary" style="margin-top: 10px;" onclick="runFromHerePipeline()">
+                <button type="button" class="btn btn-primary" id="run-pipeline-btn" style="margin-top: 10px;" onclick="runFromHerePipeline()">
                     ⚡ Run From Here (Pipeline)
                 </button>
 
@@ -621,6 +644,7 @@
         let RUN_T0 = null;
         let RUN_EST_MS = null;
         let CURRENT_JOB_ID = null;
+        let RUN_UI_LOCKED = false;
 
         // Cross-step parameter sync: fields with the same "sync" key share values.
         const SYNCED_VALUES = {};  // { syncKey: value }
@@ -684,6 +708,58 @@
             if (b) b.style.display = visible ? 'block' : 'none';
         }
 
+        function setRunUiLocked(locked) {
+            RUN_UI_LOCKED = locked;
+            const runStepBtn = document.getElementById('run-step-btn');
+            const runPipeBtn = document.getElementById('run-pipeline-btn');
+            if (runStepBtn) runStepBtn.disabled = locked;
+            if (runPipeBtn) runPipeBtn.disabled = locked;
+
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar) sidebar.classList.toggle('run-locked', locked);
+
+            if (locked) closeDirModal();
+
+            ['essential-params', 'advanced-params'].forEach((id) => {
+                const root = document.getElementById(id);
+                if (!root) return;
+                root.querySelectorAll('input, select, textarea, button').forEach((el) => {
+                    if (locked) {
+                        if (el.dataset.runLockSavedDisabled === undefined) {
+                            el.dataset.runLockSavedDisabled = el.disabled ? '1' : '0';
+                        }
+                        el.disabled = true;
+                    } else {
+                        const was = el.dataset.runLockSavedDisabled;
+                        if (was !== undefined) {
+                            el.disabled = was === '1';
+                            delete el.dataset.runLockSavedDisabled;
+                        }
+                    }
+                });
+            });
+
+            document.querySelectorAll('.workflow-steps .step').forEach(el => {
+                if (locked) {
+                    el.classList.add('step-disabled');
+                    el.setAttribute('aria-disabled', 'true');
+                    el.setAttribute('tabindex', '-1');
+                } else {
+                    el.classList.remove('step-disabled');
+                    el.removeAttribute('aria-disabled');
+                    el.setAttribute('tabindex', '0');
+                }
+            });
+        }
+
+        function clearProgressTimerAndBar() {
+            if (RUN_TIMER) clearInterval(RUN_TIMER);
+            RUN_TIMER = null;
+            RUN_T0 = null;
+            RUN_EST_MS = null;
+            document.getElementById('progress-wrap').style.display = 'none';
+        }
+
         function updateDistortionNotice(stepId) {
             const el = document.getElementById('distortion-notice');
             if (!el) return;
@@ -706,7 +782,7 @@
         }
 
         function startProgress(stepId, params) {
-            stopProgress();
+            clearProgressTimerAndBar();
             RUN_T0 = Date.now();
             document.getElementById('progress-wrap').style.display = 'block';
             document.getElementById('progress-fill').style.width = '0%';
@@ -721,15 +797,12 @@
         }
 
         function stopProgress(finishState) {
-            if (RUN_TIMER) clearInterval(RUN_TIMER);
-            RUN_TIMER = null;
-            RUN_T0 = null;
-            RUN_EST_MS = null;
-            document.getElementById('progress-wrap').style.display = 'none';
+            clearProgressTimerAndBar();
             if (finishState === 'done') setRunState('Done');
             else if (finishState === 'failed') setRunState('Failed');
             else if (finishState === 'cancelled') setRunState('Cancelled');
             else setRunState('Idle');
+            setRunUiLocked(false);
         }
 
         function renderParam(container, spec) {
@@ -1079,6 +1152,7 @@
         }
 
         async function selectStep(stepId) {
+            if (RUN_UI_LOCKED) return;
             ACTIVE_STEP_ID = stepId;
 
             // UI workflow highlight
@@ -1106,67 +1180,83 @@
         }
 
         async function runSelectedStep() {
-            if (!ACTIVE_STEP_ID) return;
-            let params = collectParams();
-            renderParamSummary(params);
-            setLog(`Preparing '${ACTIVE_STEP_ID}'… uploading files if needed.\n`);
-            setRunState('Preparing');
-            startProgress(ACTIVE_STEP_ID, params);
-            // yield to browser so it paints the status immediately
-            await new Promise(r => setTimeout(r, 0));
+            if (!ACTIVE_STEP_ID || RUN_UI_LOCKED) return;
+            setRunUiLocked(true);
+            try {
+                let params = collectParams();
+                renderParamSummary(params);
+                setLog(`Preparing '${ACTIVE_STEP_ID}'… uploading files if needed.\n`);
+                setRunState('Preparing');
+                startProgress(ACTIVE_STEP_ID, params);
+                // yield to browser so it paints the status immediately
+                await new Promise(r => setTimeout(r, 0));
 
-            params = await uploadSelectedFiles(params);
-            setLog(`Starting '${ACTIVE_STEP_ID}'… submitting job.\n`);
+                params = await uploadSelectedFiles(params);
+                setLog(`Starting '${ACTIVE_STEP_ID}'… submitting job.\n`);
 
-            const r = await fetch(`/api/run_async/${ACTIVE_STEP_ID}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ params })
-            });
-            const start = await r.json();
-            if (!start.job_id) {
-                setLog(`Run failed: ${JSON.stringify(start)}\n`);
+                const r = await fetch(`/api/run_async/${ACTIVE_STEP_ID}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ params })
+                });
+                const start = await r.json();
+                if (!start.job_id) {
+                    setLog(`Run failed: ${JSON.stringify(start)}\n`);
+                    stopProgress();
+                    return;
+                }
+                CURRENT_JOB_ID = start.job_id;
+                setStopButtonVisible(true);
+                setLog(`Job ${start.job_id} submitted. Waiting for output…\n`);
+                await pollJob(start.job_id, ACTIVE_STEP_ID, params);
+            } catch (e) {
+                appendLog(`\nRun error: ${e && e.message ? e.message : e}\n`);
+                CURRENT_JOB_ID = null;
+                setStopButtonVisible(false);
                 stopProgress();
-                return;
             }
-            CURRENT_JOB_ID = start.job_id;
-            setStopButtonVisible(true);
-            setLog(`Job ${start.job_id} submitted. Waiting for output…\n`);
-            await pollJob(start.job_id, ACTIVE_STEP_ID, params);
         }
 
         async function runFromHerePipeline() {
-            if (!ACTIVE_STEP_ID) return;
-            let params = collectParams();
-            renderParamSummary(params);
-            setLog(`Preparing pipeline from '${ACTIVE_STEP_ID}'… uploading files if needed.\n`);
-            setRunState('Preparing');
-            startProgress(ACTIVE_STEP_ID, params);
-            await new Promise(r => setTimeout(r, 0));
+            if (!ACTIVE_STEP_ID || RUN_UI_LOCKED) return;
+            setRunUiLocked(true);
+            try {
+                let params = collectParams();
+                renderParamSummary(params);
+                setLog(`Preparing pipeline from '${ACTIVE_STEP_ID}'… uploading files if needed.\n`);
+                setRunState('Preparing');
+                startProgress(ACTIVE_STEP_ID, params);
+                await new Promise(r => setTimeout(r, 0));
 
-            params = await uploadSelectedFiles(params);
-            setLog(`Starting pipeline from '${ACTIVE_STEP_ID}'… submitting job.\n`);
+                params = await uploadSelectedFiles(params);
+                setLog(`Starting pipeline from '${ACTIVE_STEP_ID}'… submitting job.\n`);
 
-            const r = await fetch(`/api/run_pipeline_async`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    start_step_id: ACTIVE_STEP_ID,
-                    params_by_step: {
-                        [ACTIVE_STEP_ID]: params
-                    }
-                })
-            });
-            const start = await r.json();
-            if (!start.job_id) {
-                setLog(`Pipeline failed: ${JSON.stringify(start)}\n`);
+                const r = await fetch(`/api/run_pipeline_async`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        start_step_id: ACTIVE_STEP_ID,
+                        params_by_step: {
+                            [ACTIVE_STEP_ID]: params
+                        }
+                    })
+                });
+                const start = await r.json();
+                if (!start.job_id) {
+                    setLog(`Pipeline failed: ${JSON.stringify(start)}\n`);
+                    stopProgress();
+                    return;
+                }
+                CURRENT_JOB_ID = start.job_id;
+                setStopButtonVisible(true);
+                setLog(`Job ${start.job_id} submitted. Waiting for output…\n`);
+                await pollJob(start.job_id, ACTIVE_STEP_ID, params);
+            } catch (e) {
+                appendLog(`\nPipeline error: ${e && e.message ? e.message : e}\n`);
+                CURRENT_JOB_ID = null;
+                setStopButtonVisible(false);
                 stopProgress();
-                return;
             }
-            CURRENT_JOB_ID = start.job_id;
-            setStopButtonVisible(true);
-            setLog(`Job ${start.job_id} submitted. Waiting for output…\n`);
-            await pollJob(start.job_id, ACTIVE_STEP_ID, params);
         }
 
         async function pollJob(jobId, stepId, params) {

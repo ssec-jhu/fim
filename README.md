@@ -22,8 +22,8 @@ three steps:
    moduli, fiber parameters) from the displacement field using the virtual
    work principle.
 
-A lightweight web UI and a schema-driven CLI are provided to run each step
-with dynamically rendered parameters.
+A lightweight web UI and command-line execution (`python -m …`) are provided
+to run each step.
 
 ---
 
@@ -36,7 +36,7 @@ FIM offers two installation paths depending on your role and technical needs:
 | **Audience** | Developers who edit code, add models, or tune parameters | Users who run FIM in the web browser; no local Python installation is required |
 | **Prerequisites** | Git, Conda | Docker Desktop |
 | **Install** | `git clone … && pip install -e .` | `docker run --rm -p 8000:8000 -v ~/fim-output:/data ghcr.io/ssec-jhu/fim` |
-| **Run options** | Web UI, CLI, or direct script execution | Web UI only |
+| **Run options** | Web UI or CLI | Web UI only |
 
 Choose one path — they are independent. Full steps are under **Path A** and **Path B** below.
 
@@ -69,9 +69,9 @@ For **CUDA** on Linux/NVIDIA, install a matching PyTorch build from [pytorch.org
 
 ---
 
-**Run — Web UI, CLI, or direct scripts**
+**Run — Web UI or CLI**
 
-After installation you can run the pipeline in **three** ways:
+After installation you can run the pipeline in **two** ways:
 
 1. **Web UI** — run `fim-ui`:
 
@@ -84,7 +84,9 @@ Equivalent to `uvicorn fim.app.main:app --reload`. In production use `--no-reloa
 
 Parameters come from `fim/app/schemas/fim_params.schema.json`.
 
-2. **Direct script execution**
+2. **CLI**
+
+Run each step with `python -m …` (the same modules the UI calls). Omitted flags keep each script’s defaults; **`--help`** / **`-h`** lists all options and their defaults (e.g. `python -m fim.refactor.deformation_tracking -h`).
 
 ```bash
 python -m fim.refactor.deformation_tracking \
@@ -95,14 +97,6 @@ python -m fim.refactor.deformation_tracking \
 python -m fim.refactor.main_VFM \
     --data_path path/to/output \
     --model linear
-```
-
-3. **CLI (schema-driven)**
-
-```bash
-python -m fim.app.cli list-steps
-python -m fim.app.cli show-step tracking
-python -m fim.app.cli run tracking --set out_dir=/tmp/fim-out --set num_iter=200
 ```
 
 ### Path B — Docker container
@@ -205,9 +199,9 @@ open _build/html/index.html
 
 ```
 fim/
-├── app/               # FastAPI web UI + CLI + pipeline runner
+├── app/               # FastAPI web UI and pipeline runner
 │   ├── main.py        # FastAPI application
-│   ├── cli.py         # Schema-driven CLI
+│   ├── cli.py         # Optional schema-driven CLI (not required for typical use)
 │   └── schemas/       # JSON parameter schemas
 ├── refactor/          # Core algorithms
 │   ├── deformation_tracking.py   # Step 1: 3D displacement estimation

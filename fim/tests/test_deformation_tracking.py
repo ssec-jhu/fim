@@ -297,6 +297,16 @@ class TestMainPipeline:
         assert not (tmp_path / "X.npy").exists()
         assert (tmp_path / "Ux.npy").exists()
 
+    def test_main_save_comparison_figure_flag_calls_helper(self, tiny_stack: np.ndarray, tmp_path: Path) -> None:
+        pl, ps = _patch_load_and_shift(tiny_stack)
+        with patch.object(
+            dt, "_save_comparison_figure", return_value=tmp_path / "comparison_prediction_vs_data.png"
+        ) as m:
+            with patch.object(sys, "argv", _base_argv(tmp_path) + ["--save_comparison_figure"]):
+                with pl, ps:
+                    dt.main()
+        assert m.call_count == 1
+
     def test_main_shape_mismatch_raises(self, tmp_path: Path) -> None:
         v1 = np.ones((4, 4, 4), dtype=np.float32)
         v2 = np.ones((3, 4, 4), dtype=np.float32)
@@ -327,7 +337,7 @@ class TestMainPipeline:
 
     def test_main_tv2_and_indentation_penalty(self, tiny_stack: np.ndarray, tmp_path: Path) -> None:
         pl, ps = _patch_load_and_shift(tiny_stack)
-        extras = ["--TV2_reg", "0.01", "--indentation_constraint", "--Uz_penalty_weight", "0.1"]
+        extras = ["--TV2_reg", "0.01", "--Uz_penalty_weight", "0.1"]
         with patch.object(sys, "argv", _base_argv(tmp_path) + extras):
             with pl, ps:
                 dt.main()
