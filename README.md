@@ -22,8 +22,9 @@ three steps:
    moduli, fiber parameters) from the displacement field using the virtual
    work principle.
 
-A lightweight web UI and command-line execution (`python -m …`) are provided
-to run each step.
+A lightweight web UI is provided for interactive runs. From the terminal, run
+each step with **direct script execution** (`python -m fim.refactor.…`), using
+each module’s own `--help` and flags (not a separate schema-driven CLI).
 
 ---
 
@@ -82,11 +83,11 @@ fim-ui
 Open **http://127.0.0.1:8000/** (use `fim-ui --port 8001` if 8000 is busy).  
 Equivalent to `uvicorn fim.app.main:app --reload`. In production use `--no-reload` and tune `--host` as needed.
 
-Parameters come from `fim/app/schemas/fim_params.schema.json`.
+Form fields and defaults in the browser are driven by `fim/app/schemas/fim_params.schema.json`.
 
-2. **CLI**
+2. **CLI — direct script execution**
 
-Run each step with `python -m …` (the same modules the UI calls). Omitted flags keep each script’s defaults; **`--help`** / **`-h`** lists all options and their defaults (e.g. `python -m fim.refactor.deformation_tracking -h`).
+Run each step with `python -m …` against the refactor entry points below. Each script exposes its own argparse interface; omitted flags use that script’s defaults. **`--help`** / **`-h`** lists every option (for example `python -m fim.refactor.deformation_tracking -h`).
 
 ```bash
 python -m fim.refactor.deformation_tracking \
@@ -201,8 +202,7 @@ open _build/html/index.html
 fim/
 ├── app/               # FastAPI web UI and pipeline runner
 │   ├── main.py        # FastAPI application
-│   ├── cli.py         # Optional schema-driven CLI (not required for typical use)
-│   └── schemas/       # JSON parameter schemas
+│   └── schemas/       # JSON parameter schemas (web UI)
 ├── refactor/          # Core algorithms
 │   ├── deformation_tracking.py   # Step 1: 3D displacement estimation
 │   ├── main_VFM.py              # Step 2: Inverse material characterization
