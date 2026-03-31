@@ -47,6 +47,7 @@ import scipy.ndimage
 import torch
 from numpy.lib.format import open_memmap
 from skimage import io
+from skimage.metrics import structural_similarity as structural_similarity_2d
 from skimage.registration import phase_cross_correlation
 from tqdm.auto import tqdm
 
@@ -222,6 +223,153 @@ def estimate_initial_shift(
     return np.array(xy_shift, dtype=np.float64), z_shift
 
 
+def _corr_rmse_ssim_2d(pred2d: np.ndarray, data2d: np.ndarray) -> tuple[float, float, float]:
+    """Pearson r, RMSE, and SSIM for same-shaped 2D arrays."""
+    p = np.asarray(pred2d, dtype=np.float64)
+    d = np.asarray(data2d, dtype=np.float64)
+    rmse = float(np.sqrt(np.mean((p - d) ** 2)))
+    pr, dr = p.ravel(), d.ravel()
+    if np.std(pr) > 1e-12 and np.std(dr) > 1e-12:
+        corr = float(np.corrcoef(pr, dr)[0, 1])
+    else:
+        corr = float("nan")
+    dmin = float(min(p.min(), d.min()))
+    dmax = float(max(p.max(), d.max()))
+    data_range = max(dmax - dmin, 1e-12)
+    ssim_val = float(structural_similarity_2d(p, d, data_range=data_range))
+    return corr, rmse, ssim_val
+
+
+def _save_comparison_figure(
+    out_dir: Path,
+    stack_with_xyz: np.ndarray,
+    stack_without_xyz: np.ndarray,
+    Ux_um: np.ndarray,
+    Uy_um: np.ndarray,
+    Uz_um: np.ndarray,
+    rot_np: np.ndarray,
+    shift_um: np.ndarray,
+    dxy_eff_um: float,
+    dz_eff_um: float,
+) -> Path | None:
+    """Save prediction-vs-data comparison PNG (4×3 grid: XY/YZ projections and slices).
+
+    Columns: prediction, data, difference (pred − data). Each row reports Corr, RMSE, SSIM.
+    Returns the saved figure path, or ``None`` when plotting dependencies are unavailable.
+
+    Memory: builds ``pred`` one Z-slab at a time (no full-volume ``meshgrid``), so peak RAM
+    stays ~O(nx·ny) temporaries + one ``pred`` volume (same order as the input stacks).
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        print("Skipping comparison figure: matplotlib is not available.", file=sys.stderr, flush=True)
+        return None
+
+    nx, ny, nz = stack_with_xyz.shape
+    x_axis_um_centered = np.arange(nx, dtype=np.float64) * dxy_eff_um
+    y_axis_um_centered = np.arange(ny, dtype=np.float64) * dxy_eff_um
+    z_axis_um_centered = np.arange(nz, dtype=np.float64) * dz_eff_um
+    x_axis_um_centered -= x_axis_um_centered.mean()
+    y_axis_um_centered -= y_axis_um_centered.mean()
+    z_axis_um_centered -= z_axis_um_centered.mean()
+
+    vol = stack_without_xyz.astype(np.float32, copy=False)
+    pred = np.empty((nx, ny, nz), dtype=np.float32)
+    xi = x_axis_um_centered[:, None]
+    yj = y_axis_um_centered[None, :]
+    r00, r01, r02 = rot_np[0, 0], rot_np[0, 1], rot_np[0, 2]
+    r10, r11, r12 = rot_np[1, 0], rot_np[1, 1], rot_np[1, 2]
+    r20, r21, r22 = rot_np[2, 0], rot_np[2, 1], rot_np[2, 2]
+    sx, sy, sz = shift_um[0], shift_um[1], shift_um[2]
+    nx2, ny2, nz2 = nx / 2.0, ny / 2.0, nz / 2.0
+
+    for k in range(nz):
+        rx = xi + Ux_um[:, :, k]
+        ry = yj + Uy_um[:, :, k]
+        rz = z_axis_um_centered[k] + Uz_um[:, :, k]
+        x_um = r00 * rx + r01 * ry + r02 * rz + sx
+        y_um = r10 * rx + r11 * ry + r12 * rz + sy
+        z_um = r20 * rx + r21 * ry + r22 * rz + sz
+        x_pix = np.clip(x_um / dxy_eff_um + nx2, 0.0, nx - 1.0001)
+        y_pix = np.clip(y_um / dxy_eff_um + ny2, 0.0, ny - 1.0001)
+        z_pix = np.clip(z_um / dz_eff_um + nz2, 0.0, nz - 1.0001)
+        pred[:, :, k] = scipy.ndimage.map_coordinates(vol, [x_pix, y_pix, z_pix], order=1, mode="nearest")
+
+    z_mid = nz // 2
+    x_mid = nx // 2
+
+    data_proj_xy = stack_with_xyz.max(axis=2)
+    pred_proj_xy = pred.max(axis=2)
+    data_xy = stack_with_xyz[:, :, z_mid]
+    pred_xy = pred[:, :, z_mid]
+
+    data_proj_yz = stack_with_xyz.max(axis=0)
+    pred_proj_yz = pred.max(axis=0)
+    data_yz = stack_with_xyz[x_mid, :, :]
+    pred_yz = pred[x_mid, :, :]
+    # imshow: rows = first dim; for YZ plot use Y horizontal, Z vertical → (nz, ny)
+    data_proj_yz = np.asarray(data_proj_yz).T
+    pred_proj_yz = np.asarray(pred_proj_yz).T
+    data_yz = np.asarray(data_yz).T
+    pred_yz = np.asarray(pred_yz).T
+
+    rows: list[tuple[str, np.ndarray, np.ndarray]] = [
+        ("XY projection (max Z)", pred_proj_xy, data_proj_xy),
+        (f"XY slice (Z={z_mid})", pred_xy, data_xy),
+        ("YZ projection (max X)", pred_proj_yz, data_proj_yz),
+        (f"YZ slice (X={x_mid})", pred_yz, data_yz),
+    ]
+
+    fig, axes = plt.subplots(4, 3, figsize=(16, 18), constrained_layout=True)
+    cmap_data = "viridis"
+    cmap_diff = "RdBu_r"
+
+    for i, (row_label, p2d, d2d) in enumerate(rows):
+        diff2d = p2d.astype(np.float64) - d2d.astype(np.float64)
+        corr, rmse, ssim_val = _corr_rmse_ssim_2d(p2d, d2d)
+        vmax_data = float(max(np.max(p2d), np.max(d2d), 1e-9))
+        vmin_data = 0.0
+
+        abs_diff = np.abs(diff2d)
+        vmax_diff = float(max(np.percentile(abs_diff, 99.5), np.max(abs_diff) * 1e-6, 1e-9))
+        vmin_diff = -vmax_diff
+
+        row_title = f"{row_label}\nCorr: {corr:.4f} | RMSE: {rmse:.2f} | SSIM: {ssim_val:.4f}"
+
+        for j, (img, vmin, vmax, cmap) in enumerate(
+            [
+                (p2d, vmin_data, vmax_data, cmap_data),
+                (d2d, vmin_data, vmax_data, cmap_data),
+                (diff2d, vmin_diff, vmax_diff, cmap_diff),
+            ]
+        ):
+            ax = axes[i, j]
+            im = ax.imshow(img, cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto", interpolation="nearest")
+            ax.set_xticks([])
+            ax.set_yticks([])
+            cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            cbar.ax.tick_params(labelsize=7)
+
+        if i == 0:
+            axes[0, 0].set_title("Prediction", fontsize=11)
+            axes[0, 1].set_title("Data\n" + row_title, fontsize=10)
+            axes[0, 2].set_title("Difference (Pred − Data)", fontsize=11)
+        else:
+            axes[i, 1].set_title(row_title, fontsize=10)
+
+    fig.suptitle(f"Prediction vs data — {out_dir.name}", fontsize=12, y=1.01)
+
+    fig_path = out_dir / "comparison_prediction_vs_data.png"
+    fig.savefig(fig_path, dpi=160)
+    plt.close(fig)
+    print(f"Saved comparison figure to: {fig_path}", file=sys.stderr, flush=True)
+    return fig_path
+
+
 def _unlink_if_exists(path: Path) -> None:
     """Remove a file so the next write always replaces it (handles shape/dtype changes)."""
     try:
@@ -366,16 +514,12 @@ def main() -> None:
     p.add_argument("--deform_downsample_factor_xy", type=int, default=10, help="Coarse deformation grid factor XY")
     p.add_argument("--deform_downsample_factor_z", type=int, default=8, help="Coarse deformation grid factor Z")
     p.add_argument(
-        "--indentation_constraint",
-        action="store_true",
-        help="Indentation constraint: drive the saved output Uz to be mostly negative (downward displacement).",
-    )
-    p.add_argument(
         "--Uz_penalty_weight",
         type=float,
         default=0.0,
         help=(
-            "Weight for indentation constraint penalty. Larger values more strongly enforce Uz < 0 in the final output."
+            "Penalty weight for upward internal Uz in the coarse deformation field (0 disables). "
+            "Larger values more strongly discourage upward motion so saved Uz tends downward."
         ),
     )
     p.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"], help="Compute device")
@@ -418,6 +562,11 @@ def main() -> None:
         type=float,
         default=1.0,
         help="Smoothing strength: sigma (pixels) for gaussian; diffusion strength for laplacian (typical 0.1-5.0).",
+    )
+    p.add_argument(
+        "--save_comparison_figure",
+        action="store_true",
+        help="Save comparison_prediction_vs_data.png (prediction vs data: XY max projection and middle XY slice).",
     )
 
     args = p.parse_args()
@@ -556,7 +705,7 @@ def main() -> None:
         loss = mse
         if args.TV2_reg and args.TV2_reg > 0:
             loss = loss + (args.TV2_reg * total_variation_loss(r_deform_um))
-        if args.indentation_constraint and args.Uz_penalty_weight > 0:
+        if args.Uz_penalty_weight > 0:
             # Output convention: Uz_m = -(Uz_rot_um + shift_um[2]) * 1e-6.
             # Therefore, to push output Uz_m < 0 (downward), we penalize negative internal r_deform_um z
             # so the optimizer drives internal_z >= 0.
@@ -600,6 +749,20 @@ def main() -> None:
     Ux_rot_um = rot_np[0, 0] * Ux_um + rot_np[0, 1] * Uy_um + rot_np[0, 2] * Uz_um
     Uy_rot_um = rot_np[1, 0] * Ux_um + rot_np[1, 1] * Uy_um + rot_np[1, 2] * Uz_um
     Uz_rot_um = rot_np[2, 0] * Ux_um + rot_np[2, 1] * Uy_um + rot_np[2, 2] * Uz_um
+
+    if args.save_comparison_figure:
+        _save_comparison_figure(
+            out_dir=out_dir,
+            stack_with_xyz=stack_with_xyz,
+            stack_without_xyz=stack_without_xyz,
+            Ux_um=Ux_um,
+            Uy_um=Uy_um,
+            Uz_um=Uz_um,
+            rot_np=rot_np,
+            shift_um=shift_um,
+            dxy_eff_um=dxy_eff_um,
+            dz_eff_um=dz_eff_um,
+        )
 
     # Add global shift (microns), then convert to meters.
     # The internal displacement maps deformed → reference (backward warp).
@@ -672,27 +835,6 @@ def main() -> None:
         write_xyz_grids_m(out_dir, x_axis_m, y_axis_m, z_axis_m, shape=(nx, ny, nz), dtype=np.float32, chunk_z=8)
         write_volume_matrix_m3(out_dir, shape=(nx, ny, nz), voxel_volume_m3=voxel_volume_m3, dtype=np.float32)
 
-    # Minimal run metadata
-    (out_dir / "run_info.txt").write_text(
-        "\n".join(
-            [
-                "deformation_tracking.py",
-                f"with_sphere={args.with_sphere}",
-                f"without_sphere={args.without_sphere}",
-                f"shape_xyz={(nx, ny, nz)}",
-                f"dxy_um={args.dxy_um} dz_um={args.dz_um}",
-                f"downsamp_xy={args.downsamp_xy} downsamp_z={args.downsamp_z}",
-                f"xy_shift_px={xy_shift_px.tolist()} z_shift_px={z_shift_px}",
-                f"lock_global_shift={args.lock_global_shift}",
-                f"TV2_reg={args.TV2_reg}",
-                f"indentation_constraint={args.indentation_constraint} Uz_penalty_weight={args.Uz_penalty_weight}",
-                f"device={device}",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
     t_total_s = time.perf_counter() - t0_total
     t_save_s = max(0.0, t_total_s - t_load_s - t_opt_s)
     sec_per_iter = (t_opt_s / args.num_iter) if args.num_iter else float("nan")
@@ -707,6 +849,29 @@ def main() -> None:
     )
 
     print(f"Saved outputs to: {out_dir}")
+    print(f"Total running time: {t_total_s:.2f} s", file=sys.stderr, flush=True)
+
+    # Minimal run metadata (written last so total wall time is included)
+    (out_dir / "run_info.txt").write_text(
+        "\n".join(
+            [
+                "deformation_tracking.py",
+                f"with_sphere={args.with_sphere}",
+                f"without_sphere={args.without_sphere}",
+                f"shape_xyz={(nx, ny, nz)}",
+                f"dxy_um={args.dxy_um} dz_um={args.dz_um}",
+                f"downsamp_xy={args.downsamp_xy} downsamp_z={args.downsamp_z}",
+                f"xy_shift_px={xy_shift_px.tolist()} z_shift_px={z_shift_px}",
+                f"lock_global_shift={args.lock_global_shift}",
+                f"TV2_reg={args.TV2_reg}",
+                f"Uz_penalty_weight={args.Uz_penalty_weight}",
+                f"device={device}",
+                f"total_running_time_s={t_total_s:.4f}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":

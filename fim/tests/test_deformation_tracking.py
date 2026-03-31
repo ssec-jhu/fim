@@ -266,6 +266,53 @@ class TestEstimateInitialShift:
 
 
 @pytest.mark.unit
+class TestComparisonFigureHelpers:
+    def test_corr_rmse_ssim_2d_varying(self) -> None:
+        rng = np.random.default_rng(7)
+        p2d = rng.random((12, 10))
+        d2d = p2d + 0.05 * rng.standard_normal((12, 10))
+        corr, rmse, ssim_val = dt._corr_rmse_ssim_2d(p2d, d2d)
+        assert np.isfinite(corr)
+        assert rmse > 0
+        assert 0.0 <= ssim_val <= 1.0
+
+    def test_corr_rmse_ssim_2d_constant_nan_corr(self) -> None:
+        # SSIM default win_size is 7; need at least 7×7 patches.
+        p2d = np.ones((10, 10), dtype=np.float64)
+        d2d = np.full((10, 10), 2.0, dtype=np.float64)
+        corr, rmse, ssim_val = dt._corr_rmse_ssim_2d(p2d, d2d)
+        assert np.isnan(corr)
+        assert rmse == pytest.approx(1.0)
+        assert np.isfinite(ssim_val)
+
+    def test_save_comparison_figure_writes_png(self, tmp_path: Path) -> None:
+        pytest.importorskip("matplotlib", reason="comparison figure requires matplotlib")
+        rng = np.random.default_rng(0)
+        nx, ny, nz = 14, 12, 10
+        stack_with = (rng.random((nx, ny, nz)) * 200).astype(np.float32)
+        stack_without = (rng.random((nx, ny, nz)) * 200).astype(np.float32)
+        u0 = np.zeros((nx, ny, nz), dtype=np.float64)
+        rot = np.eye(3, dtype=np.float64)
+        shift = np.zeros(3, dtype=np.float64)
+        out = dt._save_comparison_figure(
+            tmp_path,
+            stack_with,
+            stack_without,
+            u0,
+            u0,
+            u0,
+            rot,
+            shift,
+            1.0,
+            1.0,
+        )
+        assert out is not None
+        assert out == tmp_path / "comparison_prediction_vs_data.png"
+        assert out.is_file()
+        assert out.stat().st_size > 1000
+
+
+@pytest.mark.unit
 class TestMainPipeline:
     def test_main_writes_outputs_and_grids(
         self,
@@ -297,6 +344,16 @@ class TestMainPipeline:
         assert not (tmp_path / "X.npy").exists()
         assert (tmp_path / "Ux.npy").exists()
 
+    def test_main_save_comparison_figure_flag_calls_helper(self, tiny_stack: np.ndarray, tmp_path: Path) -> None:
+        pl, ps = _patch_load_and_shift(tiny_stack)
+        with patch.object(
+            dt, "_save_comparison_figure", return_value=tmp_path / "comparison_prediction_vs_data.png"
+        ) as m:
+            with patch.object(sys, "argv", _base_argv(tmp_path) + ["--save_comparison_figure"]):
+                with pl, ps:
+                    dt.main()
+        assert m.call_count == 1
+
     def test_main_shape_mismatch_raises(self, tmp_path: Path) -> None:
         v1 = np.ones((4, 4, 4), dtype=np.float32)
         v2 = np.ones((3, 4, 4), dtype=np.float32)
@@ -327,7 +384,7 @@ class TestMainPipeline:
 
     def test_main_tv2_and_indentation_penalty(self, tiny_stack: np.ndarray, tmp_path: Path) -> None:
         pl, ps = _patch_load_and_shift(tiny_stack)
-        extras = ["--TV2_reg", "0.01", "--indentation_constraint", "--Uz_penalty_weight", "0.1"]
+        extras = ["--TV2_reg", "0.01", "--Uz_penalty_weight", "0.1"]
         with patch.object(sys, "argv", _base_argv(tmp_path) + extras):
             with pl, ps:
                 dt.main()

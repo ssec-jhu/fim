@@ -346,16 +346,9 @@
               "default": null
             },
             {
-              "key": "indentation_constraint",
-              "label": "Penalize positive Uz",
-              "description": "Add penalty to discourage upward displacement under the indenter",
-              "type": "boolean",
-              "default": null
-            },
-            {
               "key": "Uz_penalty_weight",
               "label": "Uz penalty weight",
-              "description": "Strength of the positive-Uz penalty (only active when enabled above)",
+              "description": "0 = off. \u003e0 adds penalty on upward internal Uz in the coarse field (stronger = more downward bias in saved Uz).",
               "type": "number",
               "default": 0.0,
               "step": 0.5,

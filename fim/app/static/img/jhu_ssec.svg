@@ -1,0 +1,52 @@
+<svg width="520" height="110" viewBox="0 0 520 110" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .logo-text { font-family: Georgia, "Times New Roman", serif; fill: white; }
+    .jhu-main  { font-size: 42px; font-weight: 700; letter-spacing: 2px; }
+    .sub1      { font-size: 13.5px; font-weight: 400; letter-spacing: 3.5px; }
+    .sub2      { font-size: 13.5px; font-weight: 400; letter-spacing: 3.5px; }
+  </style>
+
+  <!-- JHU Shield -->
+  <g transform="translate(10, 8)">
+    <path d="M0 0 H58 V52 Q58 72 29 82 Q0 72 0 52 Z" fill="none" stroke="white" stroke-width="1.8"/>
+    <path d="M4 3 H54 V52 Q54 69 29 78 Q4 69 4 52 Z" fill="none" stroke="white" stroke-width="0.8" opacity="0.5"/>
+
+    <!-- Book at top -->
+    <g transform="translate(10, 6)">
+      <path d="M19 0 Q19 0 14 2 L14 14 Q19 12 19 12 Q19 12 24 14 L24 2 Q19 0 19 0 Z" fill="none" stroke="white" stroke-width="1.2" stroke-linejoin="round"/>
+      <line x1="19" y1="0" x2="19" y2="12" stroke="white" stroke-width="1"/>
+      <line x1="15.5" y1="5"   x2="18" y2="4.2"  stroke="white" stroke-width="0.6"/>
+      <line x1="15.5" y1="7.5" x2="18" y2="6.8"  stroke="white" stroke-width="0.6"/>
+      <line x1="15.5" y1="10"  x2="18" y2="9.4"  stroke="white" stroke-width="0.6"/>
+      <line x1="22.5" y1="4.2" x2="20" y2="5"    stroke="white" stroke-width="0.6"/>
+      <line x1="22.5" y1="6.8" x2="20" y2="7.5"  stroke="white" stroke-width="0.6"/>
+      <line x1="22.5" y1="9.4" x2="20" y2="10"   stroke="white" stroke-width="0.6"/>
+    </g>
+
+    <!-- Dividers -->
+    <line x1="4"  y1="28" x2="54" y2="28" stroke="white" stroke-width="0.9" opacity="0.8"/>
+    <line x1="29" y1="28" x2="29" y2="72" stroke="white" stroke-width="0.9" opacity="0.8"/>
+
+    <!-- Globe (top-left) -->
+    <g transform="translate(7, 31)" opacity="0.95">
+      <circle cx="10" cy="10" r="8.5" fill="none" stroke="white" stroke-width="0.9"/>
+      <line x1="1.5"  y1="10" x2="18.5" y2="10" stroke="white" stroke-width="0.6"/>
+      <line x1="10"   y1="1.5" x2="10"  y2="18.5" stroke="white" stroke-width="0.6"/>
+      <path d="M2.5 6 Q10 4 17.5 6"   fill="none" stroke="white" stroke-width="0.5"/>
+      <path d="M2.5 14 Q10 16 17.5 14" fill="none" stroke="white" stroke-width="0.5"/>
+    </g>
+
+    <!-- Maryland pattern (top-right) -->
+    <g transform="translate(33, 31)">
+      <rect x="0" y="0" width="9" height="9" fill="white" opacity="0.85"/>
+      <rect x="9" y="0" width="9" height="9" fill="none" stroke="white" stroke-width="0.5"/>
+      <rect x="0" y="9" width="9" height="9" fill="none" stroke="white" stroke-width="0.5"/>
+      <rect x="9" y="9" width="9" height="9" fill="white" opacity="0.85"/>
+    </g>
+  </g>
+
+  <!-- Text -->
+  <text class="logo-text jhu-main" x="86" y="55">JOHNS HOPKINS</text>
+  <text class="logo-text sub1"     x="87" y="76">SCIENTIFIC SOFTWARE</text>
+  <text class="logo-text sub2"     x="87" y="95">ENGINEERING CENTER</text>
+</svg>
