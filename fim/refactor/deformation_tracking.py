@@ -411,7 +411,8 @@ def _save_comparison_figure(
     )  # Half the grid size: used to put the origin in the middle like the training code.
 
     for k in range(nz):  # k picks one Z layer at a time (saves memory).
-        # For this slab: add displacement, apply rotation and shift, then turn physical position into voxel indices in the reference volume.
+        # For this slab: add displacement, apply rotation and shift, then turn physical
+        # position into voxel indices in the reference volume.
         rx = xi + Ux_um[:, :, k]  # Reference X (μm) plus local displacement Ux on this layer.
         ry = yj + Uy_um[:, :, k]  # Same for Y.
         rz = z_axis_um_centered[k] + Uz_um[:, :, k]  # Z position of this layer plus Uz.
@@ -821,15 +822,15 @@ def main() -> None:
     # Optimizable parameters
     # ----------------------------
     xyz_shift_global_um = torch.tensor(  # Whole-volume translation in microns (learnable unless you lock it).
-        # Negative (estimated shift in pixels × microns per pixel): start close to where phase correlation says overlap is best.
+        # Negative (estimated shift in pixels × microns per pixel): start close to where
+        # phase correlation says overlap is best.
         [-xy_shift_px[0] * dxy_eff_um, -xy_shift_px[1] * dxy_eff_um, -z_shift_px * dz_eff_um],
         dtype=torch.float32,
         requires_grad=(not args.lock_global_shift),
         device=device,
     )
-    axis = torch.tensor(
-        [0.0, 0.0, 1.0], dtype=torch.float32, requires_grad=True, device=device
-    )  # Which way the rigid rotation turns about: learnable 3-vector, initialized along +Z and normalized inside axis_angle_rotmat.
+    # Rotation axis (learnable 3-vector; normalized in axis_angle_rotmat); init +Z.
+    axis = torch.tensor([0.0, 0.0, 1.0], dtype=torch.float32, requires_grad=True, device=device)
     angle = torch.tensor(
         0.0, dtype=torch.float32, requires_grad=True, device=device
     )  # How many radians to rotate about that axis; starts at zero (no rotation).
@@ -885,7 +886,8 @@ def main() -> None:
             None, :
         ]  # After adding local motion, rotating, and shifting: where we land in microns.
 
-        # Convert microns to fractional voxel indices in the reference (without-sphere) volume (origin at volume center).
+        # Convert microns to fractional voxel indices in the reference (without-sphere)
+        # volume (origin at volume center).
         x_float = r_deformed[:, 0] / dxy_eff_um + (nx / 2)  # Reference X index (can be between voxels).
         y_float = r_deformed[:, 1] / dxy_eff_um + (ny / 2)  # Reference Y index.
         z_float = r_deformed[:, 2] / dz_eff_um + (nz / 2)  # Reference Z index.
@@ -904,7 +906,8 @@ def main() -> None:
     ui_no_tqdm = (
         os.environ.get("FIM_UI_NO_TQDM", "0") == "1"
     )  # If set, hide the tqdm bar (e.g. for a GUI that parses logs instead).
-    # If “print every N steps” is larger than the total number of steps, print every step so short runs still show progress.
+    # If “print every N steps” exceeds the total number of steps, print every step so short
+    # runs still show progress.
     progress_every = (
         int(args.progress_every) if args.progress_every is not None else 0
     )  # How often to print FIM_PROGRESS lines (0 = never).
@@ -928,7 +931,8 @@ def main() -> None:
                 args.TV2_reg * total_variation_loss(r_deform_um)
             )  # Extra term: discourage jagged coarse displacement.
         if args.Uz_penalty_weight > 0:
-            # Saved Uz uses a sign flip later; penalizing negative *internal* coarse Uz encourages downward motion in the saved field.
+            # Saved Uz uses a sign flip later; penalizing negative *internal* coarse Uz
+            # encourages downward motion in the saved field.
             negative_internal_uz = torch.relu(
                 -r_deform_um[:, :, :, 2]
             )  # How much the coarse z-displacement is “up” when we want it not to be.
@@ -1003,7 +1007,8 @@ def main() -> None:
         )
 
     # Training used a backward map; for output we want displacement from reference to deformed in meters.
-    # Negating (rotated displacement + shift) and scaling μm→m matches the usual u = x_deformed − X_ref convention for downstream VFM.
+    # Negating (rotated displacement + shift) and scaling μm→m matches the usual
+    # u = x_deformed − X_ref convention for downstream VFM.
     Ux_m = -(Ux_rot_um + shift_um[0]) * 1e-6  # Saved Ux field in meters.
     Uy_m = -(Uy_rot_um + shift_um[1]) * 1e-6  # Saved Uy in meters.
     Uz_m = -(Uz_rot_um + shift_um[2]) * 1e-6  # Saved Uz in meters.
