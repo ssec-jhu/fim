@@ -54,7 +54,9 @@ from tqdm.auto import tqdm
 # ----------------------------
 # Defaults: if you do not pass paths on the command line, these sample stacks are used.
 # ----------------------------
-_SIM_TIFF_DIR = Path(__file__).resolve().parent.parent / "test_data" / "simulate"  # Folder that ships with small demo TIFFs.
+_SIM_TIFF_DIR = (
+    Path(__file__).resolve().parent.parent / "test_data" / "simulate"
+)  # Folder that ships with small demo TIFFs.
 DEFAULT_WITHOUT_SPHERE = str(_SIM_TIFF_DIR / "ref_image.tif")  # Default “no sphere” (reference) image path.
 DEFAULT_WITH_SPHERE = str(_SIM_TIFF_DIR / "def_image.tif")  # Default “with sphere” (deformed) image path.
 
@@ -106,8 +108,12 @@ def _unravel_flat_indices(
     fn = getattr(torch, "unravel_index", None)  # Newer PyTorch has this; older versions take the NumPy path below.
     if fn is not None:
         return fn(indices, shape)
-    unr = np.unravel_index(indices.detach().cpu().numpy().astype(np.int64), shape)  # Same math on CPU: one array per axis (i, j, k).
-    return tuple(torch.as_tensor(x, device=indices.device, dtype=torch.long) for x in unr)  # x runs over axes; move each back to the GPU/CPU tensor device.
+    unr = np.unravel_index(
+        indices.detach().cpu().numpy().astype(np.int64), shape
+    )  # Same math on CPU: one array per axis (i, j, k).
+    return tuple(
+        torch.as_tensor(x, device=indices.device, dtype=torch.long) for x in unr
+    )  # x runs over axes; move each back to the GPU/CPU tensor device.
 
 
 def axis_angle_rotmat(axis: torch.Tensor, angle: torch.Tensor) -> torch.Tensor:
@@ -172,7 +178,9 @@ def interpolated_prediction(
     torch.Tensor
         Interpolated values; leading dims follow broadcast rules.
     """
-    x_float = torch.clamp(x_float, min=0, max=volume.shape[0] - 2)  # Stay inside so we always have a full 2×2×2 box of neighbors in X.
+    x_float = torch.clamp(
+        x_float, min=0, max=volume.shape[0] - 2
+    )  # Stay inside so we always have a full 2×2×2 box of neighbors in X.
     y_float = torch.clamp(y_float, min=0, max=volume.shape[1] - 2)  # Same in Y.
     z_float = torch.clamp(z_float, min=0, max=volume.shape[2] - 2)  # Same in Z.
 
@@ -281,7 +289,9 @@ def load_tiff_zyx_to_xyz(path: str, z_start: int, z_end: int | None, downsamp_xy
         ``(nx, ny, nz)``; dtype from file.
     """
     vol_zyx = io.imread(path)  # Image comes in as depth × height × width (Z,Y,X).
-    vol_zyx = vol_zyx[z_start:z_end:downsamp_z, ::downsamp_xy, ::downsamp_xy]  # Optional crop and skip voxels to shrink the stack.
+    vol_zyx = vol_zyx[
+        z_start:z_end:downsamp_z, ::downsamp_xy, ::downsamp_xy
+    ]  # Optional crop and skip voxels to shrink the stack.
     # Reorder axes to X,Y,Z for the rest of the code.
     return vol_zyx.transpose(2, 1, 0)
 
@@ -304,11 +314,15 @@ def estimate_initial_shift(
     """
     max_with = stack_with_sphere_xyz.max(2)  # Squash Z: one 2D “top-down” picture of the deformed volume.
     max_without = stack_without_sphere_xyz.max(2)  # Same for the reference volume.
-    xy_shift, _, _ = phase_cross_correlation(max_with, max_without, upsample_factor=32)  # How many pixels to shift in X and Y to line those 2D images up.
+    xy_shift, _, _ = phase_cross_correlation(
+        max_with, max_without, upsample_factor=32
+    )  # How many pixels to shift in X and Y to line those 2D images up.
 
     yz_with = stack_with_sphere_xyz.max(0)  # Squash X instead: a (Y,Z) picture from the side.
     yz_without = stack_without_sphere_xyz.max(0)  # Side view of the reference.
-    yz_shift, _, _ = phase_cross_correlation(yz_with, yz_without, upsample_factor=32)  # Shift in the side view (second number is along Z).
+    yz_shift, _, _ = phase_cross_correlation(
+        yz_with, yz_without, upsample_factor=32
+    )  # Shift in the side view (second number is along Z).
     z_shift = float(yz_shift[1])  # Use the Z component of that side-view shift as initial Z offset (pixels).
     return np.array(xy_shift, dtype=np.float64), z_shift
 
@@ -329,7 +343,9 @@ def _corr_rmse_ssim_2d(pred2d: np.ndarray, data2d: np.ndarray) -> tuple[float, f
     dmin = float(min(p.min(), d.min()))  # Darkest value across both images (for SSIM scaling).
     dmax = float(max(p.max(), d.max()))  # Brightest value across both.
     data_range = max(dmax - dmin, 1e-12)  # Overall contrast; SSIM needs this so “similar” is meaningful.
-    ssim_val = float(structural_similarity_2d(p, d, data_range=data_range))  # SSIM: closer to 1 means more alike structurally.
+    ssim_val = float(
+        structural_similarity_2d(p, d, data_range=data_range)
+    )  # SSIM: closer to 1 means more alike structurally.
     return corr, rmse, ssim_val
 
 
@@ -367,22 +383,32 @@ def _save_comparison_figure(
         return None
 
     nx, ny, nz = stack_with_xyz.shape  # Number of voxels along X, Y, and Z.
-    x_axis_um_centered = np.arange(nx, dtype=np.float64) * dxy_eff_um  # X positions in microns, centered so the middle of the box is ~0.
+    x_axis_um_centered = (
+        np.arange(nx, dtype=np.float64) * dxy_eff_um
+    )  # X positions in microns, centered so the middle of the box is ~0.
     y_axis_um_centered = np.arange(ny, dtype=np.float64) * dxy_eff_um  # Same for Y.
     z_axis_um_centered = np.arange(nz, dtype=np.float64) * dz_eff_um  # Same for Z.
     x_axis_um_centered -= x_axis_um_centered.mean()
     y_axis_um_centered -= y_axis_um_centered.mean()
     z_axis_um_centered -= z_axis_um_centered.mean()
 
-    vol = stack_without_xyz.astype(np.float32, copy=False)  # Reference stack we resample (float32 is enough for plotting).
-    pred = np.empty((nx, ny, nz), dtype=np.float32)  # We fill this: “what the reference would look like” after the warp.
+    vol = stack_without_xyz.astype(
+        np.float32, copy=False
+    )  # Reference stack we resample (float32 is enough for plotting).
+    pred = np.empty(
+        (nx, ny, nz), dtype=np.float32
+    )  # We fill this: “what the reference would look like” after the warp.
     xi = x_axis_um_centered[:, None]  # X coordinate as a column (varies along rows only).
     yj = y_axis_um_centered[None, :]  # Y coordinate as a row (varies along columns only).
     r00, r01, r02 = rot_np[0, 0], rot_np[0, 1], rot_np[0, 2]  # First row of the rotation matrix.
     r10, r11, r12 = rot_np[1, 0], rot_np[1, 1], rot_np[1, 2]  # Second row.
     r20, r21, r22 = rot_np[2, 0], rot_np[2, 1], rot_np[2, 2]  # Third row.
     sx, sy, sz = shift_um[0], shift_um[1], shift_um[2]  # Extra translation in microns after rotation.
-    nx2, ny2, nz2 = nx / 2.0, ny / 2.0, nz / 2.0  # Half the grid size: used to put the origin in the middle like the training code.
+    nx2, ny2, nz2 = (
+        nx / 2.0,
+        ny / 2.0,
+        nz / 2.0,
+    )  # Half the grid size: used to put the origin in the middle like the training code.
 
     for k in range(nz):  # k picks one Z layer at a time (saves memory).
         # For this slab: add displacement, apply rotation and shift, then turn physical position into voxel indices in the reference volume.
@@ -393,7 +419,9 @@ def _save_comparison_figure(
         y_um = r10 * rx + r11 * ry + r12 * rz + sy  # Rotated+shifted Y.
         z_um = r20 * rx + r21 * ry + r22 * rz + sz  # Rotated+shifted Z.
         # Match forward_model: voxel index = position/spacing + half the grid length.
-        x_pix = np.clip(x_um / dxy_eff_um + nx2, 0.0, nx - 1.0001)  # Where to read reference intensity in X (fractional index).
+        x_pix = np.clip(
+            x_um / dxy_eff_um + nx2, 0.0, nx - 1.0001
+        )  # Where to read reference intensity in X (fractional index).
         y_pix = np.clip(y_um / dxy_eff_um + ny2, 0.0, ny - 1.0001)  # Same in Y.
         z_pix = np.clip(z_um / dz_eff_um + nz2, 0.0, nz - 1.0001)  # Same in Z.
         pred[:, :, k] = scipy.ndimage.map_coordinates(vol, [x_pix, y_pix, z_pix], order=1, mode="nearest")
@@ -423,7 +451,9 @@ def _save_comparison_figure(
         (f"YZ slice (X={x_mid})", pred_yz, data_yz),
     ]
 
-    fig, axes = plt.subplots(4, 3, figsize=(16, 18), constrained_layout=True)  # Four rows (views) by three columns (pred, data, difference).
+    fig, axes = plt.subplots(
+        4, 3, figsize=(16, 18), constrained_layout=True
+    )  # Four rows (views) by three columns (pred, data, difference).
     cmap_data = "viridis"  # Purple–yellow scale for intensity images.
     cmap_diff = "RdBu_r"  # Red–blue scale centered at zero for differences.
 
@@ -434,7 +464,9 @@ def _save_comparison_figure(
         vmin_data = 0.0  # Bottom of the scale (assume non-negative intensity).
 
         abs_diff = np.abs(diff2d)  # Size of the error at each pixel.
-        vmax_diff = float(max(np.percentile(abs_diff, 99.5), np.max(abs_diff) * 1e-6, 1e-9))  # Symmetric range so ±errors use the same colors.
+        vmax_diff = float(
+            max(np.percentile(abs_diff, 99.5), np.max(abs_diff) * 1e-6, 1e-9)
+        )  # Symmetric range so ±errors use the same colors.
         vmin_diff = -vmax_diff  # Negative side of the diverging scale.
 
         row_title = f"{row_label}\nCorr: {corr:.4f} | RMSE: {rmse:.2f} | SSIM: {ssim_val:.4f}"  # Text under the middle column for this row.
@@ -447,7 +479,9 @@ def _save_comparison_figure(
             ]
         ):
             ax = axes[i, j]  # One small plot in the grid.
-            im = ax.imshow(img, cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto", interpolation="nearest")  # Draw the 2D array as a colored image.
+            im = ax.imshow(
+                img, cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto", interpolation="nearest"
+            )  # Draw the 2D array as a colored image.
             ax.set_xticks([])  # Hide axis numbers (figures are for visual inspection only).
             ax.set_yticks([])
             cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)  # Legend strip showing what colors mean.
@@ -519,11 +553,15 @@ def write_xyz_grids_m(
 
     for name in ("X.npy", "Y.npy", "Z.npy"):  # name is each coordinate file we are about to (over)write.
         _unlink_if_exists(out_dir / name)
-    X_mm = open_memmap(out_dir / "X.npy", mode="w+", dtype=dtype, shape=shape)  # On-disk array for X at every voxel (no full mesh in RAM).
+    X_mm = open_memmap(
+        out_dir / "X.npy", mode="w+", dtype=dtype, shape=shape
+    )  # On-disk array for X at every voxel (no full mesh in RAM).
     Y_mm = open_memmap(out_dir / "Y.npy", mode="w+", dtype=dtype, shape=shape)  # Same for Y.
     Z_mm = open_memmap(out_dir / "Z.npy", mode="w+", dtype=dtype, shape=shape)  # Same for Z.
 
-    x_col = x_axis_m.astype(dtype, copy=False)[:, None, None]  # Repeat the X 1D line across Y and Z without storing a huge array.
+    x_col = x_axis_m.astype(dtype, copy=False)[
+        :, None, None
+    ]  # Repeat the X 1D line across Y and Z without storing a huge array.
     y_row = y_axis_m.astype(dtype, copy=False)[None, :, None]  # Repeat Y across X and Z.
     z_row = z_axis_m.astype(dtype, copy=False)[None, None, :]  # Repeat Z across X and Y.
 
@@ -541,7 +579,9 @@ def write_volume_matrix_m3(
 ) -> None:
     """Write ``volume_matrix.npy``: constant physical voxel volume (m³) per grid cell."""
     _unlink_if_exists(out_dir / "volume_matrix.npy")
-    vol_mm = open_memmap(out_dir / "volume_matrix.npy", mode="w+", dtype=dtype, shape=shape)  # One physical voxel volume per cell (for integration weights later).
+    vol_mm = open_memmap(
+        out_dir / "volume_matrix.npy", mode="w+", dtype=dtype, shape=shape
+    )  # One physical voxel volume per cell (for integration weights later).
     nz = shape[2]  # How many Z layers to loop over.
     chunk_z = 8  # Write a few Z slices at a time.
     for z0 in range(0, nz, chunk_z):  # Start index of this chunk in Z.
@@ -577,7 +617,9 @@ def smooth_displacement_field(
     ndarray, same shape as *U*.
     """
     if method == "gaussian":
-        return scipy.ndimage.gaussian_filter(U, sigma=sigma, output=np.empty_like(U))  # Blur each component with a Gaussian bell of width sigma (voxels).
+        return scipy.ndimage.gaussian_filter(
+            U, sigma=sigma, output=np.empty_like(U)
+        )  # Blur each component with a Gaussian bell of width sigma (voxels).
     if method == "laplacian":
         # Smooth by repeatedly adding a small Laplacian step (like heat diffusion on the field).
         # More iterations when sigma is large; step size alpha stays small so it stays stable.
@@ -714,7 +756,9 @@ def main() -> None:
     elif args.device == "cpu":
         device = torch.device("cpu")  # Force everything on the CPU.
     else:
-        device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")  # Prefer GPU if present, else CPU.
+        device = (
+            torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+        )  # Prefer GPU if present, else CPU.
 
     # Heavy torch tensors and optimizers sit on device; NumPy coordinate arrays stay on CPU until we save.
 
@@ -722,7 +766,9 @@ def main() -> None:
     # 1. Load volumes (fixed ZYX -> XYZ)
     # ----------------------------
     print(f"Loading TIFF (with sphere): {_display_input_name(args.with_sphere)}", file=sys.stderr, flush=True)
-    stack_with_xyz = load_tiff_zyx_to_xyz(args.with_sphere, args.z_start, args.z_end, args.downsamp_xy, args.downsamp_z)  # Deformed specimen (with sphere), as X,Y,Z array, possibly cropped/downsampled.
+    stack_with_xyz = load_tiff_zyx_to_xyz(
+        args.with_sphere, args.z_start, args.z_end, args.downsamp_xy, args.downsamp_z
+    )  # Deformed specimen (with sphere), as X,Y,Z array, possibly cropped/downsampled.
     print(
         f"Loading TIFF (without sphere): {_display_input_name(args.without_sphere)}",
         file=sys.stderr,
@@ -743,7 +789,9 @@ def main() -> None:
     # ----------------------------
     # 2. Initial shift estimate (pixels)
     # ----------------------------
-    xy_shift_px, z_shift_px = estimate_initial_shift(stack_with_xyz, stack_without_xyz)  # Rough alignment: (shift in X, shift in Y) and shift in Z, all in pixels.
+    xy_shift_px, z_shift_px = estimate_initial_shift(
+        stack_with_xyz, stack_without_xyz
+    )  # Rough alignment: (shift in X, shift in Y) and shift in Z, all in pixels.
 
     # ----------------------------
     # Coordinate axes for optimization (centered, microns)
@@ -751,7 +799,9 @@ def main() -> None:
     dxy_eff_um = args.dxy_um * args.downsamp_xy  # True pixel size in XY after downsampling (microns per voxel step).
     dz_eff_um = args.dz_um * args.downsamp_z  # True step size along Z after downsampling.
 
-    x_axis_um_centered = torch.arange(nx, device=device, dtype=torch.float32) * dxy_eff_um  # X coordinate of each column, in microns, mean-centered for stable rotation.
+    x_axis_um_centered = (
+        torch.arange(nx, device=device, dtype=torch.float32) * dxy_eff_um
+    )  # X coordinate of each column, in microns, mean-centered for stable rotation.
     y_axis_um_centered = torch.arange(ny, device=device, dtype=torch.float32) * dxy_eff_um  # Same for Y.
     z_axis_um_centered = torch.arange(nz, device=device, dtype=torch.float32) * dz_eff_um  # Same for Z.
     x_axis_um_centered -= x_axis_um_centered.mean()
@@ -761,7 +811,9 @@ def main() -> None:
     # Files written for VFM use positions starting at 0 m along each edge (see x_axis_m below).
 
     # Output axes (start at 0, meters)
-    x_axis_m = (np.arange(nx, dtype=np.float64) * dxy_eff_um) * 1e-6  # X coordinate of each voxel for saved grids, in meters from 0.
+    x_axis_m = (
+        np.arange(nx, dtype=np.float64) * dxy_eff_um
+    ) * 1e-6  # X coordinate of each voxel for saved grids, in meters from 0.
     y_axis_m = (np.arange(ny, dtype=np.float64) * dxy_eff_um) * 1e-6  # Y from 0 (m).
     z_axis_m = (np.arange(nz, dtype=np.float64) * dz_eff_um) * 1e-6  # Z from 0 (m).
 
@@ -775,8 +827,12 @@ def main() -> None:
         requires_grad=(not args.lock_global_shift),
         device=device,
     )
-    axis = torch.tensor([0.0, 0.0, 1.0], dtype=torch.float32, requires_grad=True, device=device)  # Which way the rigid rotation turns about: learnable 3-vector, initialized along +Z and normalized inside axis_angle_rotmat.
-    angle = torch.tensor(0.0, dtype=torch.float32, requires_grad=True, device=device)  # How many radians to rotate about that axis; starts at zero (no rotation).
+    axis = torch.tensor(
+        [0.0, 0.0, 1.0], dtype=torch.float32, requires_grad=True, device=device
+    )  # Which way the rigid rotation turns about: learnable 3-vector, initialized along +Z and normalized inside axis_angle_rotmat.
+    angle = torch.tensor(
+        0.0, dtype=torch.float32, requires_grad=True, device=device
+    )  # How many radians to rotate about that axis; starts at zero (no rotation).
 
     # Coarse deformation grid
     nx_c = max(2, nx // args.deform_downsample_factor_xy)  # Number of coarse voxels along X (at least 2).
@@ -786,8 +842,12 @@ def main() -> None:
     # Local displacement vectors (microns) on the coarse grid; we upsample to full resolution after training.
 
     # Prepare images on device
-    stack_with_t = torch.tensor(stack_with_xyz.astype(np.float32), device=device)  # Deformed volume as a torch tensor on GPU/CPU.
-    stack_without_t = torch.tensor(stack_without_xyz.astype(np.float32), device=device)  # Reference volume the same way.
+    stack_with_t = torch.tensor(
+        stack_with_xyz.astype(np.float32), device=device
+    )  # Deformed volume as a torch tensor on GPU/CPU.
+    stack_without_t = torch.tensor(
+        stack_without_xyz.astype(np.float32), device=device
+    )  # Reference volume the same way.
 
     # Per-variable optimizers (keeps LR clear)
     optimizers = []  # We will attach one Adam optimizer per parameter group below.
@@ -800,7 +860,9 @@ def main() -> None:
     def forward_model(rand_ind: torch.Tensor) -> torch.Tensor:
         """Batch MSE: *with-sphere* intensity vs *reference* sampled at inferred backward-warp positions."""
         # Turn random flat indices into (i,j,k) voxel addresses in the deformed image.
-        xyz = _unravel_flat_indices(rand_ind, stack_with_t.shape)  # Three integer index tensors: where we read the “data” voxel (with sphere).
+        xyz = _unravel_flat_indices(
+            rand_ind, stack_with_t.shape
+        )  # Three integer index tensors: where we read the “data” voxel (with sphere).
 
         # Physical location (microns) of that voxel in the centered frame.
         delta_r = torch.stack(
@@ -809,20 +871,28 @@ def main() -> None:
         )  # N rows × 3 columns: x,y,z in microns for each sample.
 
         # Where that point falls inside the coarse displacement grid (fractional indices).
-        x_def = torch.clamp(xyz[0] / args.deform_downsample_factor_xy, 0, r_deform_um.shape[0] - 1)  # Coarse-grid X coordinate for trilinear lookup.
+        x_def = torch.clamp(
+            xyz[0] / args.deform_downsample_factor_xy, 0, r_deform_um.shape[0] - 1
+        )  # Coarse-grid X coordinate for trilinear lookup.
         y_def = torch.clamp(xyz[1] / args.deform_downsample_factor_xy, 0, r_deform_um.shape[1] - 1)  # Coarse-grid Y.
         z_def = torch.clamp(xyz[2] / args.deform_downsample_factor_z, 0, r_deform_um.shape[2] - 1)  # Coarse-grid Z.
-        local_def = interpolated_prediction(x_def, y_def, z_def, r_deform_um, trilinear_interp=True)  # Local displacement (Ux,Uy,Uz) in microns at each sample.
+        local_def = interpolated_prediction(
+            x_def, y_def, z_def, r_deform_um, trilinear_interp=True
+        )  # Local displacement (Ux,Uy,Uz) in microns at each sample.
 
         rot = axis_angle_rotmat(axis, angle)  # 3×3 rotation from current axis and angle.
-        r_deformed = (delta_r + local_def) @ rot + xyz_shift_global_um[None, :]  # After adding local motion, rotating, and shifting: where we land in microns.
+        r_deformed = (delta_r + local_def) @ rot + xyz_shift_global_um[
+            None, :
+        ]  # After adding local motion, rotating, and shifting: where we land in microns.
 
         # Convert microns to fractional voxel indices in the reference (without-sphere) volume (origin at volume center).
         x_float = r_deformed[:, 0] / dxy_eff_um + (nx / 2)  # Reference X index (can be between voxels).
         y_float = r_deformed[:, 1] / dxy_eff_um + (ny / 2)  # Reference Y index.
         z_float = r_deformed[:, 2] / dz_eff_um + (nz / 2)  # Reference Z index.
 
-        pred = interpolated_prediction(x_float, y_float, z_float, stack_without_t, trilinear_interp=True)  # Reference image brightness at those predicted locations.
+        pred = interpolated_prediction(
+            x_float, y_float, z_float, stack_without_t, trilinear_interp=True
+        )  # Reference image brightness at those predicted locations.
         tgt = stack_with_t[xyz[0], xyz[1], xyz[2]]  # Measured brightness at the original deformed voxel (with sphere).
         return torch.mean((tgt - pred) ** 2)  # Average squared difference over this minibatch (one scalar).
 
@@ -831,26 +901,40 @@ def main() -> None:
     # ----------------------------
     t0_opt = time.perf_counter()  # When the optimization phase started.
     total_vox = nx * ny * nz  # Total voxels: upper bound for random index sampling.
-    ui_no_tqdm = os.environ.get("FIM_UI_NO_TQDM", "0") == "1"  # If set, hide the tqdm bar (e.g. for a GUI that parses logs instead).
+    ui_no_tqdm = (
+        os.environ.get("FIM_UI_NO_TQDM", "0") == "1"
+    )  # If set, hide the tqdm bar (e.g. for a GUI that parses logs instead).
     # If “print every N steps” is larger than the total number of steps, print every step so short runs still show progress.
-    progress_every = int(args.progress_every) if args.progress_every is not None else 0  # How often to print FIM_PROGRESS lines (0 = never).
+    progress_every = (
+        int(args.progress_every) if args.progress_every is not None else 0
+    )  # How often to print FIM_PROGRESS lines (0 = never).
     if progress_every > 0 and progress_every > args.num_iter:
         progress_every = 1
     # tqdm format without a time-remaining estimate (GPU noise makes ETA misleading).
     bar_fmt = "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}"  # Simple bar: percent and counts only.
     mse_trace = np.empty(args.num_iter, dtype=np.float64) if args.trace_mse else None
-    for i in tqdm(range(args.num_iter), desc="optim", disable=ui_no_tqdm, bar_format=bar_fmt):  # i is the current iteration number.
-        rand_ind = torch.randint(total_vox, (args.batch_size,), device=device)  # Random voxels: stochastic estimate of the full-data loss.
+    for i in tqdm(
+        range(args.num_iter), desc="optim", disable=ui_no_tqdm, bar_format=bar_fmt
+    ):  # i is the current iteration number.
+        rand_ind = torch.randint(
+            total_vox, (args.batch_size,), device=device
+        )  # Random voxels: stochastic estimate of the full-data loss.
         mse = forward_model(rand_ind)  # Main term: match intensities.
         if mse_trace is not None:
             mse_trace[i] = float(mse.detach().cpu().item())
         loss = mse  # Start from data term; we may add penalties next.
         if args.TV2_reg and args.TV2_reg > 0:
-            loss = loss + (args.TV2_reg * total_variation_loss(r_deform_um))  # Extra term: discourage jagged coarse displacement.
+            loss = loss + (
+                args.TV2_reg * total_variation_loss(r_deform_um)
+            )  # Extra term: discourage jagged coarse displacement.
         if args.Uz_penalty_weight > 0:
             # Saved Uz uses a sign flip later; penalizing negative *internal* coarse Uz encourages downward motion in the saved field.
-            negative_internal_uz = torch.relu(-r_deform_um[:, :, :, 2])  # How much the coarse z-displacement is “up” when we want it not to be.
-            loss = loss + (args.Uz_penalty_weight * torch.mean(negative_internal_uz**2))  # Squared penalty weighted by user factor.
+            negative_internal_uz = torch.relu(
+                -r_deform_um[:, :, :, 2]
+            )  # How much the coarse z-displacement is “up” when we want it not to be.
+            loss = loss + (
+                args.Uz_penalty_weight * torch.mean(negative_internal_uz**2)
+            )  # Squared penalty weighted by user factor.
 
         loss.backward()  # Compute gradients for every parameter that has requires_grad=True.
         for opt in optimizers:  # opt is each Adam instance (shift, axis, angle, or deformation).
@@ -880,15 +964,23 @@ def main() -> None:
     # Upsample deformation to full resolution and compose (rotation + shift)
     # ----------------------------
     r_np = r_deform_um.detach().cpu().numpy()  # Coarse displacement field in microns, numpy array on CPU.
-    zoom_factors = (nx / r_np.shape[0], ny / r_np.shape[1], nz / r_np.shape[2])  # How much to stretch each coarse axis to match full resolution.
+    zoom_factors = (
+        nx / r_np.shape[0],
+        ny / r_np.shape[1],
+        nz / r_np.shape[2],
+    )  # How much to stretch each coarse axis to match full resolution.
 
     # Upsample each component (order=1 linear, 2 quadratic, 3 cubic)
     upsample_order = args.upsample_order  # Spline order: higher = smoother interpolation between coarse nodes.
-    Ux_um = scipy.ndimage.zoom(r_np[:, :, :, 0], zoom_factors, order=upsample_order)  # Full-res Ux in microns (same sign convention as inside training).
+    Ux_um = scipy.ndimage.zoom(
+        r_np[:, :, :, 0], zoom_factors, order=upsample_order
+    )  # Full-res Ux in microns (same sign convention as inside training).
     Uy_um = scipy.ndimage.zoom(r_np[:, :, :, 1], zoom_factors, order=upsample_order)  # Full-res Uy.
     Uz_um = scipy.ndimage.zoom(r_np[:, :, :, 2], zoom_factors, order=upsample_order)  # Full-res Uz.
 
-    rot_np = axis_angle_rotmat(axis, angle).detach().cpu().numpy().astype(np.float64)  # Final 3×3 rotation as double precision for numpy.
+    rot_np = (
+        axis_angle_rotmat(axis, angle).detach().cpu().numpy().astype(np.float64)
+    )  # Final 3×3 rotation as double precision for numpy.
     shift_um = xyz_shift_global_um.detach().cpu().numpy().astype(np.float64)  # Final (sx, sy, sz) in microns.
 
     # Apply rotation to each displacement component without building one big (nx,ny,nz,3) array.
@@ -919,7 +1011,9 @@ def main() -> None:
     # ----------------------------
     # Optional output downsampling (after optimization)
     # ----------------------------
-    ds_xy = int(args.output_downsample_xy) if args.output_downsample_xy is not None else 1  # Keep every ds_xy-th voxel in X and Y when saving.
+    ds_xy = (
+        int(args.output_downsample_xy) if args.output_downsample_xy is not None else 1
+    )  # Keep every ds_xy-th voxel in X and Y when saving.
     ds_z = int(args.output_downsample_z) if args.output_downsample_z is not None else 1  # Stride along Z when saving.
     if ds_xy < 1:
         ds_xy = 1  # Avoid invalid step size.
@@ -973,7 +1067,12 @@ def main() -> None:
     if args.skip_grids:
         print("Skipping X/Y/Z grids and volume_matrix (--skip_grids)", file=sys.stderr, flush=True)
         # Do not leave stale grid files from a previous run (would confuse inverse / main_VFM).
-        for name in ("X.npy", "Y.npy", "Z.npy", "volume_matrix.npy"):  # Remove old grid files so nothing is left from a previous run.
+        for name in (
+            "X.npy",
+            "Y.npy",
+            "Z.npy",
+            "volume_matrix.npy",
+        ):  # Remove old grid files so nothing is left from a previous run.
             _unlink_if_exists(out_dir / name)
     else:
         print("Saving X/Y/Z grids and volume_matrix ...", file=sys.stderr, flush=True)
