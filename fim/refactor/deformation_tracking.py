@@ -470,7 +470,8 @@ def _save_comparison_figure(
         )  # Symmetric range so ±errors use the same colors.
         vmin_diff = -vmax_diff  # Negative side of the diverging scale.
 
-        row_title = f"{row_label}\nCorr: {corr:.4f} | RMSE: {rmse:.2f} | SSIM: {ssim_val:.4f}"  # Text under the middle column for this row.
+        row_title = f"{row_label}\nCorr: {corr:.4f} | RMSE: {rmse:.2f} | SSIM: {ssim_val:.4f}"  
+        # Text under the middle column for this row.
 
         for j, (img, vmin, vmax, cmap) in enumerate(  # j = 0 prediction, 1 data, 2 difference.
             [
