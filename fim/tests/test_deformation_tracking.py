@@ -354,6 +354,23 @@ class TestMainPipeline:
                     dt.main()
         assert m.call_count == 1
 
+    def test_main_trace_mse_writes_npy_and_run_info(self, tiny_stack: np.ndarray, tmp_path: Path) -> None:
+        pl, ps = _patch_load_and_shift(tiny_stack)
+        with patch.object(sys, "argv", _base_argv(tmp_path) + ["--trace_mse"]):
+            with pl, ps:
+                dt.main()
+        mse_path = tmp_path / "optimization_mse.npy"
+        assert mse_path.is_file()
+        arr = np.load(mse_path)
+        assert arr.dtype == np.float64
+        assert arr.shape == (2,)  # num_iter from _base_argv
+        assert np.all(np.isfinite(arr))
+        ri = (tmp_path / "run_info.txt").read_text(encoding="utf-8")
+        assert "trace_mse=True" in ri
+        assert "optimization_mse_npy=" in ri and "mse_curve_png=" in ri
+        pytest.importorskip("matplotlib", reason="mse curve requires matplotlib")
+        assert (tmp_path / "mse_curve.png").is_file()
+
     def test_main_shape_mismatch_raises(self, tmp_path: Path) -> None:
         v1 = np.ones((4, 4, 4), dtype=np.float32)
         v2 = np.ones((3, 4, 4), dtype=np.float32)
