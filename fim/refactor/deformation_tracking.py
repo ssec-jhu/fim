@@ -507,7 +507,7 @@ def main() -> None:
     p.add_argument("--lr_shift", type=float, default=5e-2, help="Learning rate for global shift")
     p.add_argument("--lr_axis", type=float, default=1e-3, help="Learning rate for rotation axis")
     p.add_argument("--lr_angle", type=float, default=1e-5, help="Learning rate for rotation angle")
-    p.add_argument("--lr_deform", type=float, default=0.1, help="Learning rate for deformation field")
+    p.add_argument("--lr_deform", type=float, default=0.3, help="Learning rate for deformation field")
     p.add_argument("--TV2_reg", type=float, default=30, help="TV2 regularization weight (0 disables)")
     p.add_argument("--lock_global_shift", action="store_true", help="Lock global shift at initial estimate")
 
