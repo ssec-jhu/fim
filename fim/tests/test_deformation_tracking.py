@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import runpy
 import sys
@@ -173,6 +174,96 @@ class TestSmoothDisplacementField:
 
 
 @pytest.mark.unit
+class TestRemapDisplacementLagrangian:
+    def test_zero_field_small_grid(self) -> None:
+        nx, ny, nz = 6, 7, 8
+        x = np.linspace(0.0, (nx - 1) * 1e-4, nx)
+        y = np.linspace(0.0, (ny - 1) * 1e-4, ny)
+        z = np.linspace(0.0, (nz - 1) * 1e-4, nz)
+        z0 = np.zeros((nx, ny, nz), dtype=np.float64)
+        rx, ry, rz = dt.remap_displacement_lagrangian_griddata(z0, z0, z0, x, y, z, method="linear")
+        assert np.allclose(rx, 0.0, atol=1e-9)
+        assert np.allclose(ry, 0.0, atol=1e-9)
+        assert np.allclose(rz, 0.0, atol=1e-9)
+
+    def test_uniform_translation_recovered(self) -> None:
+        nx, ny, nz = 10, 10, 10
+        d = 1e-5
+        x = np.arange(nx, dtype=np.float64) * d
+        y = np.arange(ny, dtype=np.float64) * d
+        z = np.arange(nz, dtype=np.float64) * d
+        ux = np.full((nx, ny, nz), 2e-6, dtype=np.float64)
+        uy = np.full((nx, ny, nz), -1.5e-6, dtype=np.float64)
+        uz = np.full((nx, ny, nz), 0.5e-6, dtype=np.float64)
+        rx, ry, rz = dt.remap_displacement_lagrangian_griddata(ux, uy, uz, x, y, z, method="linear")
+        assert np.allclose(rx, 2e-6, rtol=1e-5, atol=1e-8)
+        assert np.allclose(ry, -1.5e-6, rtol=1e-5, atol=1e-8)
+        assert np.allclose(rz, 0.5e-6, rtol=1e-5, atol=1e-8)
+
+    def test_shape_mismatch_raises(self) -> None:
+        u2 = np.zeros((2, 2, 2), dtype=np.float64)
+        ax_ok = np.array([0.0, 1.0])
+        ax_wrong = np.array([0.0, 1.0, 2.0])
+        with pytest.raises(ValueError, match="Axis lengths"):
+            dt.remap_displacement_lagrangian_griddata(u2, u2, u2, ax_wrong, ax_ok, ax_ok, method="nearest")
+
+    def test_u_components_shape_mismatch_raises(self) -> None:
+        u2 = np.zeros((2, 2, 2), dtype=np.float64)
+        u3 = np.zeros((3, 2, 2), dtype=np.float64)
+        ax = np.array([0.0, 1.0])
+        with pytest.raises(ValueError, match="Ux_m, Uy_m, Uz_m"):
+            dt.remap_displacement_lagrangian_griddata(u2, u3, u2, ax, ax, ax, method="nearest")
+
+    def test_remap_nearest_method_runs(self) -> None:
+        nx, ny, nz = 4, 4, 4
+        d = 1e-6
+        x = np.arange(nx, dtype=np.float64) * d
+        y = np.arange(ny, dtype=np.float64) * d
+        z = np.arange(nz, dtype=np.float64) * d
+        u = np.zeros((nx, ny, nz), dtype=np.float64)
+        rx, ry, rz = dt.remap_displacement_lagrangian_griddata(u, u, u, x, y, z, method="nearest")
+        assert rx.shape == (nx, ny, nz)
+        assert np.allclose(rx, 0.0, atol=1e-12)
+
+    def test_remap_warns_when_not_converged(self, capsys: pytest.CaptureFixture[str]) -> None:
+        nx = ny = nz = 3
+        d = 1e-6
+        x = np.arange(nx, dtype=np.float64) * d
+        y = np.arange(ny, dtype=np.float64) * d
+        z = np.arange(nz, dtype=np.float64) * d
+        u = np.zeros((nx, ny, nz), dtype=np.float64)
+        dt.remap_displacement_lagrangian_griddata(u, u, u, x, y, z, method="linear", max_iter=0)
+        err = capsys.readouterr().err
+        assert "Warning: remap_to_reference fixed-point" in err
+
+    def test_coarse_reference_axes_match_full_when_same_resolution(self) -> None:
+        n = 7
+        x = np.arange(n, dtype=np.float64) * 1e-6
+        y = np.arange(n, dtype=np.float64) * 2e-6
+        z = np.arange(n, dtype=np.float64) * 3e-6
+        xc, yc, zc = dt.coarse_reference_axes_m(x, y, z, n, n, n)
+        np.testing.assert_allclose(xc, x)
+        np.testing.assert_allclose(yc, y)
+        np.testing.assert_allclose(zc, z)
+
+    def test_coarse_reference_axes_single_coarse_node(self) -> None:
+        n = 5
+        x = np.arange(n, dtype=np.float64) * 1e-6
+        y = np.arange(n, dtype=np.float64) * 2e-6
+        z = np.arange(n, dtype=np.float64) * 3e-6
+        xc, yc, zc = dt.coarse_reference_axes_m(x, y, z, 1, n, n)
+        assert xc.shape == (1,)
+        assert xc[0] == pytest.approx(x[2])
+        np.testing.assert_allclose(yc, y)
+        np.testing.assert_allclose(zc, z)
+
+    def test_coarse_reference_axes_invalid_n_raises(self) -> None:
+        x = np.array([0.0, 1.0])
+        with pytest.raises(ValueError, match="n_c and n_full must be positive"):
+            dt.coarse_reference_axes_m(x, x, x, 0, 2, 2)
+
+
+@pytest.mark.unit
 class TestUnlinkIfExists:
     def test_removes_file(self, tmp_path: Path) -> None:
         p = tmp_path / "old.npy"
@@ -311,6 +402,46 @@ class TestComparisonFigureHelpers:
         assert out.is_file()
         assert out.stat().st_size > 1000
 
+    def test_save_comparison_figure_returns_none_without_matplotlib(self, tmp_path: Path) -> None:
+        stack = np.ones((4, 4, 4), dtype=np.float32)
+        u0 = np.zeros((4, 4, 4), dtype=np.float64)
+        rot = np.eye(3, dtype=np.float64)
+        shift = np.zeros(3, dtype=np.float64)
+        real_import = builtins.__import__
+
+        def block_matplotlib(name: str, *args, **kwargs):
+            if name == "matplotlib" or name.startswith("matplotlib."):
+                raise ImportError("matplotlib blocked for test")
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=block_matplotlib):
+            out = dt._save_comparison_figure(tmp_path, stack, stack, u0, u0, u0, rot, shift, 1.0, 1.0)
+        assert out is None
+
+
+@pytest.mark.unit
+class TestSaveMseCurvePng:
+    def test_returns_none_without_matplotlib(self, tmp_path: Path) -> None:
+        trace = np.array([1.0, 0.5], dtype=np.float64)
+        real_import = builtins.__import__
+
+        def block_matplotlib(name: str, *args, **kwargs):
+            if name == "matplotlib" or name.startswith("matplotlib."):
+                raise ImportError("matplotlib blocked for test")
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=block_matplotlib):
+            out = dt._save_mse_curve_png(tmp_path, trace)
+        assert out is None
+
+    def test_writes_png_when_matplotlib_available(self, tmp_path: Path) -> None:
+        pytest.importorskip("matplotlib", reason="mse curve requires matplotlib")
+        trace = np.linspace(1.0, 0.1, 5, dtype=np.float64)
+        out = dt._save_mse_curve_png(tmp_path, trace)
+        assert out is not None
+        assert out == tmp_path / "mse_curve.png"
+        assert out.is_file()
+
 
 @pytest.mark.unit
 class TestMainPipeline:
@@ -353,6 +484,33 @@ class TestMainPipeline:
                 with pl, ps:
                     dt.main()
         assert m.call_count == 1
+
+    def test_main_remap_to_reference_writes_outputs_and_run_info(self, tiny_stack: np.ndarray, tmp_path: Path) -> None:
+        pl, ps = _patch_load_and_shift(tiny_stack)
+        argv = _base_argv(tmp_path) + [
+            "--remap_to_reference",
+            "--remap_interp",
+            "nearest",
+            "--remap_max_iter",
+            "5",
+        ]
+        with patch.object(sys, "argv", argv):
+            with pl, ps:
+                dt.main()
+        assert (tmp_path / "Ux.npy").exists()
+        ri = (tmp_path / "run_info.txt").read_text(encoding="utf-8")
+        assert "remap_to_reference=True" in ri
+        assert "remap_stage=coarse_then_upsample" in ri
+        assert "--remap_to_reference" in ri
+
+    def test_main_repro_includes_z_end_when_set(self, tiny_stack: np.ndarray, tmp_path: Path) -> None:
+        pl, ps = _patch_load_and_shift(tiny_stack)
+        with patch.object(sys, "argv", _base_argv(tmp_path) + ["--z_end", "6"]):
+            with pl, ps:
+                dt.main()
+        ri = (tmp_path / "run_info.txt").read_text(encoding="utf-8")
+        assert "z_end=6" in ri
+        assert "--z_end 6" in ri
 
     def test_main_trace_mse_writes_npy_and_run_info(self, tiny_stack: np.ndarray, tmp_path: Path) -> None:
         pl, ps = _patch_load_and_shift(tiny_stack)
