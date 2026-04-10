@@ -1,36 +1,20 @@
-"""
-Deformation Tracking (Optimization-based)
-========================================
+"""Optimization-based 3D deformation tracking for volumetric TIFF stacks.
 
-This script estimates a 3D displacement field u(X) that maps *reference* positions to
-*deformed* positions using gradient-based optimization on volumetric image data.
+The optimizer aligns the deformed volume (with sphere) to the reference volume
+(without sphere) using a backward warp, then writes displacement fields in the
+standard convention:
 
-Convention:  u = x_deformed - X_reference   (standard continuum mechanics)
-             F = I + grad(u)                (deformation gradient used by VFM)
+    u = x_deformed - X_reference
 
-Internally the optimizer solves a *backward warp* (deformed → reference) to find the
-displacement that best aligns the deformed (with-sphere) volume to the reference
-(no-sphere) volume.  The output is then negated so that Ux, Uy, Uz represent the
-standard reference → deformed displacement.
+Outputs in ``--out_dir``:
+- ``Ux.npy``, ``Uy.npy``, ``Uz.npy`` (meters, shape ``(X, Y, Z)``)
+- ``X.npy``, ``Y.npy``, ``Z.npy`` coordinate grids (meters)
+- ``volume_matrix.npy`` voxel volume weights (m^3)
 
-Design goals:
-- Minimal + clear: only core deformation prediction (no visualization / metrics / notebooks code)
-- Fixed axis convention: assume TIFF stacks load as (Z, Y, X), convert to (X, Y, Z)
-- CLI-first: paths can be passed via CLI; if omitted, defaults are provided
-
-Outputs (written to --out_dir):
-- Ux.npy, Uy.npy, Uz.npy           displacement components in meters, shape (X,Y,Z)
-                                     convention: u = x_deformed - X_reference
-- X.npy, Y.npy, Z.npy              3D coordinate grids in meters, shape (X,Y,Z)
-- volume_matrix.npy                per-voxel volume weights in m^3, shape (X,Y,Z)
-
-Notes:
-- Reruns always replace outputs: existing U*.npy / grid .npy files in the output folder are
-  removed before writing. With --skip_grids, old X/Y/Z/volume_matrix files are deleted so
-  they cannot mismatch the new displacement fields.
-- dxy_um / dz_um are voxel spacings in microns.
-- Computation internally uses *centered* coordinates for stable rotation estimation,
-  but outputs use coordinates starting at 0 (compatible with VFM code that centers later).
+Optional ``--remap_to_reference`` rewrites ``u`` onto undeformed reference
+coordinates by solving ``x = X + u(x)`` with a fixed-point inverse map
+(``scipy.ndimage.map_coordinates``), applied on the coarse deformation grid
+before upsampling for lower memory and runtime.
 """
 
 from __future__ import annotations
@@ -38,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -636,6 +621,167 @@ def smooth_displacement_field(
     raise ValueError(f"Unknown smoothing method: {method}")
 
 
+def coarse_reference_axes_m(
+    x_axis_m: np.ndarray,
+    y_axis_m: np.ndarray,
+    z_axis_m: np.ndarray,
+    nx_c: int,
+    ny_c: int,
+    nz_c: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Physical coordinates (m) at coarse deformation nodes, aligned with ``ndimage.zoom`` layout.
+
+    Coarse index ``ic`` maps to a fractional index along the full ``x_axis_m`` so that
+    upsampling coarse data with ``zoom=(nx/nx_c, ...)`` targets the same geometry as the
+    fine reference voxel centers.
+    """
+    nx_f, ny_f, nz_f = len(x_axis_m), len(y_axis_m), len(z_axis_m)
+
+    def centers_1d(ax: np.ndarray, n_c: int, n_full: int) -> np.ndarray:
+        if n_c < 1 or n_full < 1:
+            raise ValueError("n_c and n_full must be positive")
+        ax = np.asarray(ax, dtype=np.float64)
+        if n_c == 1:
+            idx = np.array([(n_full - 1) / 2.0], dtype=np.float64)
+        else:
+            idx = (np.arange(n_c, dtype=np.float64) + 0.5) * (n_full / n_c) - 0.5
+        idx = np.clip(idx, 0.0, float(n_full - 1))
+        i0 = np.floor(idx).astype(np.int64)
+        i1 = np.minimum(i0 + 1, n_full - 1)
+        w = idx - i0.astype(np.float64)
+        return (1.0 - w) * ax[i0] + w * ax[i1]
+
+    return (
+        centers_1d(x_axis_m, nx_c, nx_f),
+        centers_1d(y_axis_m, ny_c, ny_f),
+        centers_1d(z_axis_m, nz_c, nz_f),
+    )
+
+
+def _sample_displacement_at_world_m(
+    Ux: np.ndarray,
+    Uy: np.ndarray,
+    Uz: np.ndarray,
+    xm: np.ndarray,
+    ym: np.ndarray,
+    zm: np.ndarray,
+    x0: float,
+    y0: float,
+    z0: float,
+    dx: float,
+    dy: float,
+    dz: float,
+    *,
+    order: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Trilinear (order=1) or nearest (order=0) sample of (Ux,Uy,Uz) at world coords (m)."""
+    fx = (xm - x0) / dx
+    fy = (ym - y0) / dy
+    fz = (zm - z0) / dz
+    coords = np.stack([fx, fy, fz], axis=0)
+    kw = {"order": order, "mode": "nearest", "prefilter": False}
+    ux_s = scipy.ndimage.map_coordinates(Ux, coords, **kw)
+    uy_s = scipy.ndimage.map_coordinates(Uy, coords, **kw)
+    uz_s = scipy.ndimage.map_coordinates(Uz, coords, **kw)
+    return ux_s, uy_s, uz_s
+
+
+def remap_displacement_lagrangian_griddata(
+    Ux_m: np.ndarray,
+    Uy_m: np.ndarray,
+    Uz_m: np.ndarray,
+    x_axis_m: np.ndarray,
+    y_axis_m: np.ndarray,
+    z_axis_m: np.ndarray,
+    *,
+    method: str = "linear",
+    max_iter: int = 25,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Interpolate displacement onto a regular grid in reference (Lagrangian) coordinates.
+
+    Eulerian storage: ``U*[i,j,k]`` is u at the imaging voxel indexed by ``(i,j,k)``.
+    For each reference lattice node ``X`` (same ``meshgrid`` as ``X.npy``/``Y.npy``/``Z.npy``),
+    the deformed position obeys ``x = X + u(x)`` with u sampled on the Eulerian grid.
+    We solve that with fixed-point iteration and :func:`scipy.ndimage.map_coordinates`
+    (O(N) per iteration, modest memory). Equivalent to inverting the scatter ``X = x - u``
+    without building a 3D Delaunay triangulation over all voxels.
+
+    Parameters
+    ----------
+    Ux_m, Uy_m, Uz_m
+        Displacement components (m), shape ``(nx, ny, nz)``, convention
+        ``u = x_deformed - X_reference``.
+    x_axis_m, y_axis_m, z_axis_m
+        Uniform 1D voxel-center coordinates (m), length ``nx, ny, nz``.
+    method
+        ``linear`` → ``order=1``; ``nearest`` → ``order=0`` for ``map_coordinates``.
+    max_iter
+        Maximum fixed-point steps (typically converges in few iterations for moderate strain).
+
+    Returns
+    -------
+    tuple
+        ``(Ux, Uy, Uz)`` same shape, float64, u expressed on the reference grid.
+    """
+    if Ux_m.shape != Uy_m.shape or Ux_m.shape != Uz_m.shape:
+        raise ValueError("Ux_m, Uy_m, Uz_m must have the same shape")
+    nx, ny, nz = Ux_m.shape
+    if (len(x_axis_m), len(y_axis_m), len(z_axis_m)) != (nx, ny, nz):
+        raise ValueError("Axis lengths must match displacement shape")
+
+    order = 1 if method == "linear" else 0
+    x_axis_m = np.asarray(x_axis_m, dtype=np.float64)
+    y_axis_m = np.asarray(y_axis_m, dtype=np.float64)
+    z_axis_m = np.asarray(z_axis_m, dtype=np.float64)
+    dx = float((x_axis_m[-1] - x_axis_m[0]) / (nx - 1)) if nx > 1 else 1.0
+    dy = float((y_axis_m[-1] - y_axis_m[0]) / (ny - 1)) if ny > 1 else 1.0
+    dz = float((z_axis_m[-1] - z_axis_m[0]) / (nz - 1)) if nz > 1 else 1.0
+    x0, y0, z0 = float(x_axis_m[0]), float(y_axis_m[0]), float(z_axis_m[0])
+
+    Ux = np.asarray(Ux_m, dtype=np.float64, order="C")
+    Uy = np.asarray(Uy_m, dtype=np.float64, order="C")
+    Uz = np.asarray(Uz_m, dtype=np.float64, order="C")
+
+    Xg, Yg, Zg = np.meshgrid(x_axis_m, y_axis_m, z_axis_m, indexing="ij")
+    xm = np.asarray(Xg, dtype=np.float64)
+    ym = np.asarray(Yg, dtype=np.float64)
+    zm = np.asarray(Zg, dtype=np.float64)
+
+    ux, uy, uz = _sample_displacement_at_world_m(Ux, Uy, Uz, xm, ym, zm, x0, y0, z0, dx, dy, dz, order=order)
+    xm = Xg + ux
+    ym = Yg + uy
+    zm = Zg + uz
+
+    tol = max(dx, dy, dz) * 1e-8
+    if tol <= 0:
+        tol = 1e-15
+
+    last_delta = float("inf")
+    for _ in range(max_iter):
+        ux, uy, uz = _sample_displacement_at_world_m(Ux, Uy, Uz, xm, ym, zm, x0, y0, z0, dx, dy, dz, order=order)
+        xm_new = Xg + ux
+        ym_new = Yg + uy
+        zm_new = Zg + uz
+        last_delta = float(np.max(np.abs(xm_new - xm) + np.abs(ym_new - ym) + np.abs(zm_new - zm)))
+        xm, ym, zm = xm_new, ym_new, zm_new
+        if last_delta < tol:
+            break
+
+    if last_delta >= tol:
+        print(
+            f"Warning: remap_to_reference fixed-point did not reach tol={tol:g} "
+            f"(last max node update L1 ≈ {last_delta:g} m); "
+            "try increasing --remap_max_iter.",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    ux_out, uy_out, uz_out = _sample_displacement_at_world_m(
+        Ux, Uy, Uz, xm, ym, zm, x0, y0, z0, dx, dy, dz, order=order
+    )
+    return ux_out, uy_out, uz_out
+
+
 def main() -> None:
     """CLI: load volumes, optimize MSE (backward warp), compose motion, write U*.npy and sidecar files."""
     p = argparse.ArgumentParser(  # Collects command-line options and defaults.
@@ -737,6 +883,29 @@ def main() -> None:
         action="store_true",
         help="Save comparison_prediction_vs_data.png (prediction vs data: XY max projection and middle XY slice).",
     )
+    p.add_argument(
+        "--remap_to_reference",
+        action="store_true",
+        help=(
+            "After optimization, express u on the undeformed reference lattice (inverse map x=X+u(x)) "
+            "on the coarse deformation grid, then upsample u (m) with the same zoom as the internal "
+            "field. Skips full-resolution remap. Default: Eulerian storage after zoom+rotate."
+        ),
+    )
+    p.add_argument(
+        "--remap_interp",
+        type=str,
+        default="linear",
+        choices=["linear", "nearest"],
+        help="Interpolation for --remap_to_reference: linear (trilinear) or nearest.",
+    )
+    p.add_argument(
+        "--remap_max_iter",
+        type=int,
+        default=25,
+        help="Max fixed-point iterations for --remap_to_reference.",
+    )
+
     p.add_argument(
         "--trace_mse",
         action="store_true",
@@ -914,47 +1083,35 @@ def main() -> None:
     )  # How often to print FIM_PROGRESS lines (0 = never).
     if progress_every > 0 and progress_every > args.num_iter:
         progress_every = 1
-    # tqdm format without a time-remaining estimate (GPU noise makes ETA misleading).
-    bar_fmt = "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}"  # Simple bar: percent and counts only.
+    # Progress bar without ETA (timing is noisy with stochastic batches/device variance).
+    bar_fmt = "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}"
     mse_trace = np.empty(args.num_iter, dtype=np.float64) if args.trace_mse else None
-    for i in tqdm(
-        range(args.num_iter), desc="optim", disable=ui_no_tqdm, bar_format=bar_fmt
-    ):  # i is the current iteration number.
-        rand_ind = torch.randint(
-            total_vox, (args.batch_size,), device=device
-        )  # Random voxels: stochastic estimate of the full-data loss.
-        mse = forward_model(rand_ind)  # Main term: match intensities.
+    for i in tqdm(range(args.num_iter), desc="optim", disable=ui_no_tqdm, bar_format=bar_fmt):
+        rand_ind = torch.randint(total_vox, (args.batch_size,), device=device)
+        mse = forward_model(rand_ind)
         if mse_trace is not None:
             mse_trace[i] = float(mse.detach().cpu().item())
-        loss = mse  # Start from data term; we may add penalties next.
+        loss = mse
         if args.TV2_reg and args.TV2_reg > 0:
-            loss = loss + (
-                args.TV2_reg * total_variation_loss(r_deform_um)
-            )  # Extra term: discourage jagged coarse displacement.
+            loss = loss + (args.TV2_reg * total_variation_loss(r_deform_um))
         if args.Uz_penalty_weight > 0:
             # Saved Uz uses a sign flip later; penalizing negative *internal* coarse Uz
             # encourages downward motion in the saved field.
-            negative_internal_uz = torch.relu(
-                -r_deform_um[:, :, :, 2]
-            )  # How much the coarse z-displacement is “up” when we want it not to be.
-            loss = loss + (
-                args.Uz_penalty_weight * torch.mean(negative_internal_uz**2)
-            )  # Squared penalty weighted by user factor.
+            negative_internal_uz = torch.relu(-r_deform_um[:, :, :, 2])
+            loss = loss + (args.Uz_penalty_weight * torch.mean(negative_internal_uz**2))
 
-        loss.backward()  # Compute gradients for every parameter that has requires_grad=True.
-        for opt in optimizers:  # opt is each Adam instance (shift, axis, angle, or deformation).
+        loss.backward()
+        for opt in optimizers:
             opt.step()
             opt.zero_grad()
 
         # UI-friendly progress marker (stdout, parseable)
         if progress_every and progress_every > 0:
             if (i + 1) % progress_every == 0 or (i + 1) == args.num_iter:
-                msg = f"FIM_PROGRESS iter={i + 1} total={args.num_iter}"  # Line other tools can grep for progress.
+                msg = f"FIM_PROGRESS iter={i + 1} total={args.num_iter}"
                 if ui_no_tqdm:
-                    # No tqdm bar: plain print is fine.
                     print(msg, file=sys.stderr, flush=True)
                 else:
-                    # With tqdm, use its writer so the bar and this line do not garble each other.
                     tqdm.write(msg, file=sys.stderr)
 
     t_opt_s = time.perf_counter() - t0_opt  # Seconds spent in the optimization loop.
@@ -966,32 +1123,19 @@ def main() -> None:
         _save_mse_curve_png(out_dir, mse_trace)
 
     # ----------------------------
-    # Upsample deformation to full resolution and compose (rotation + shift)
+    # Upsample internal field; compose rotation + shift for saved u (meters)
     # ----------------------------
-    r_np = r_deform_um.detach().cpu().numpy()  # Coarse displacement field in microns, numpy array on CPU.
-    zoom_factors = (
-        nx / r_np.shape[0],
-        ny / r_np.shape[1],
-        nz / r_np.shape[2],
-    )  # How much to stretch each coarse axis to match full resolution.
+    r_np = r_deform_um.detach().cpu().numpy()
+    nx_c, ny_c, nz_c = r_np.shape[0], r_np.shape[1], r_np.shape[2]
+    zoom_factors = (nx / nx_c, ny / ny_c, nz / nz_c)
+    upsample_order = args.upsample_order
+    # Keep the unrotated zoomed field for optional comparison plots.
+    Ux_um = scipy.ndimage.zoom(r_np[:, :, :, 0], zoom_factors, order=upsample_order)
+    Uy_um = scipy.ndimage.zoom(r_np[:, :, :, 1], zoom_factors, order=upsample_order)
+    Uz_um = scipy.ndimage.zoom(r_np[:, :, :, 2], zoom_factors, order=upsample_order)
 
-    # Upsample each component (order=1 linear, 2 quadratic, 3 cubic)
-    upsample_order = args.upsample_order  # Spline order: higher = smoother interpolation between coarse nodes.
-    Ux_um = scipy.ndimage.zoom(
-        r_np[:, :, :, 0], zoom_factors, order=upsample_order
-    )  # Full-res Ux in microns (same sign convention as inside training).
-    Uy_um = scipy.ndimage.zoom(r_np[:, :, :, 1], zoom_factors, order=upsample_order)  # Full-res Uy.
-    Uz_um = scipy.ndimage.zoom(r_np[:, :, :, 2], zoom_factors, order=upsample_order)  # Full-res Uz.
-
-    rot_np = (
-        axis_angle_rotmat(axis, angle).detach().cpu().numpy().astype(np.float64)
-    )  # Final 3×3 rotation as double precision for numpy.
-    shift_um = xyz_shift_global_um.detach().cpu().numpy().astype(np.float64)  # Final (sx, sy, sz) in microns.
-
-    # Apply rotation to each displacement component without building one big (nx,ny,nz,3) array.
-    Ux_rot_um = rot_np[0, 0] * Ux_um + rot_np[0, 1] * Uy_um + rot_np[0, 2] * Uz_um  # Ux component after rotation.
-    Uy_rot_um = rot_np[1, 0] * Ux_um + rot_np[1, 1] * Uy_um + rot_np[1, 2] * Uz_um  # Uy after rotation.
-    Uz_rot_um = rot_np[2, 0] * Ux_um + rot_np[2, 1] * Uy_um + rot_np[2, 2] * Uz_um  # Uz after rotation.
+    rot_np = axis_angle_rotmat(axis, angle).detach().cpu().numpy().astype(np.float64)
+    shift_um = xyz_shift_global_um.detach().cpu().numpy().astype(np.float64)
 
     if args.save_comparison_figure:
         _save_comparison_figure(
@@ -1007,34 +1151,64 @@ def main() -> None:
             dz_eff_um=dz_eff_um,
         )
 
-    # Training used a backward map; for output we want displacement from reference to deformed in meters.
-    # Negating (rotated displacement + shift) and scaling μm→m matches the usual
-    # u = x_deformed − X_ref convention for downstream VFM.
-    Ux_m = -(Ux_rot_um + shift_um[0]) * 1e-6  # Saved Ux field in meters.
-    Uy_m = -(Uy_rot_um + shift_um[1]) * 1e-6  # Saved Uy in meters.
-    Uz_m = -(Uz_rot_um + shift_um[2]) * 1e-6  # Saved Uz in meters.
-
+    # Add global shift (microns), then convert to meters.
+    # The internal displacement maps deformed → reference (backward warp).
+    # Negate to output the standard mechanics convention: reference → deformed
+    # (u = x_deformed - X_reference), consistent with F = I + grad(u) in VFM.
+    if args.remap_to_reference:
+        r64 = r_np.astype(np.float64, copy=False)
+        Ux_rot_c = rot_np[0, 0] * r64[:, :, :, 0] + rot_np[0, 1] * r64[:, :, :, 1] + rot_np[0, 2] * r64[:, :, :, 2]
+        Uy_rot_c = rot_np[1, 0] * r64[:, :, :, 0] + rot_np[1, 1] * r64[:, :, :, 1] + rot_np[1, 2] * r64[:, :, :, 2]
+        Uz_rot_c = rot_np[2, 0] * r64[:, :, :, 0] + rot_np[2, 1] * r64[:, :, :, 1] + rot_np[2, 2] * r64[:, :, :, 2]
+        Ux_m = -(Ux_rot_c + shift_um[0]) * 1e-6
+        Uy_m = -(Uy_rot_c + shift_um[1]) * 1e-6
+        Uz_m = -(Uz_rot_c + shift_um[2]) * 1e-6
+        x_cm, y_cm, z_cm = coarse_reference_axes_m(x_axis_m, y_axis_m, z_axis_m, nx_c, ny_c, nz_c)
+        print(
+            "Remapping displacement to reference (Lagrangian) on coarse grid, then upsampling u "
+            f"(inverse map, {args.remap_interp}, max_iter={args.remap_max_iter}) ...",
+            file=sys.stderr,
+            flush=True,
+        )
+        Ux_m, Uy_m, Uz_m = remap_displacement_lagrangian_griddata(
+            Ux_m,
+            Uy_m,
+            Uz_m,
+            x_cm,
+            y_cm,
+            z_cm,
+            method=args.remap_interp,
+            max_iter=max(1, int(args.remap_max_iter)),
+        )
+        Ux_m = scipy.ndimage.zoom(Ux_m, zoom_factors, order=upsample_order)
+        Uy_m = scipy.ndimage.zoom(Uy_m, zoom_factors, order=upsample_order)
+        Uz_m = scipy.ndimage.zoom(Uz_m, zoom_factors, order=upsample_order)
+    else:
+        # Default path: rotate full-resolution internal field, then convert to saved convention.
+        Ux_rot_um = rot_np[0, 0] * Ux_um + rot_np[0, 1] * Uy_um + rot_np[0, 2] * Uz_um
+        Uy_rot_um = rot_np[1, 0] * Ux_um + rot_np[1, 1] * Uy_um + rot_np[1, 2] * Uz_um
+        Uz_rot_um = rot_np[2, 0] * Ux_um + rot_np[2, 1] * Uy_um + rot_np[2, 2] * Uz_um
+        Ux_m = -(Ux_rot_um + shift_um[0]) * 1e-6
+        Uy_m = -(Uy_rot_um + shift_um[1]) * 1e-6
+        Uz_m = -(Uz_rot_um + shift_um[2]) * 1e-6
     # ----------------------------
     # Optional output downsampling (after optimization)
     # ----------------------------
-    ds_xy = (
-        int(args.output_downsample_xy) if args.output_downsample_xy is not None else 1
-    )  # Keep every ds_xy-th voxel in X and Y when saving.
-    ds_z = int(args.output_downsample_z) if args.output_downsample_z is not None else 1  # Stride along Z when saving.
+    ds_xy = int(args.output_downsample_xy) if args.output_downsample_xy is not None else 1
+    ds_z = int(args.output_downsample_z) if args.output_downsample_z is not None else 1
     if ds_xy < 1:
-        ds_xy = 1  # Avoid invalid step size.
+        ds_xy = 1
     if ds_z < 1:
         ds_z = 1
 
     if ds_xy > 1 or ds_z > 1:
-        # Smaller arrays on disk and faster for the next pipeline step.
         Ux_m = Ux_m[::ds_xy, ::ds_xy, ::ds_z]
         Uy_m = Uy_m[::ds_xy, ::ds_xy, ::ds_z]
         Uz_m = Uz_m[::ds_xy, ::ds_xy, ::ds_z]
         x_axis_m = x_axis_m[::ds_xy]
         y_axis_m = y_axis_m[::ds_xy]
         z_axis_m = z_axis_m[::ds_z]
-        nx, ny, nz = Ux_m.shape  # New shape after taking every ds_xy / ds_z sample.
+        nx, ny, nz = Ux_m.shape
 
     # ----------------------------
     # Optional post-processing smoothing (applied after downsampling to save memory)
@@ -1101,7 +1275,81 @@ def main() -> None:
     print(f"Saved outputs to: {out_dir}")
     print(f"Total running time: {t_total_s:.2f} s", file=sys.stderr, flush=True)
 
-    # Log file written last so it can include the final total time above.
+    # Build a copy-paste CLI command for reproducing this run.
+    repro_parts = [
+        "python",
+        "fim/refactor/deformation_tracking.py",
+        "--out_dir",
+        shlex.quote(str(out_dir)),
+        "--with_sphere",
+        shlex.quote(str(args.with_sphere)),
+        "--without_sphere",
+        shlex.quote(str(args.without_sphere)),
+        "--dxy_um",
+        str(args.dxy_um),
+        "--dz_um",
+        str(args.dz_um),
+        "--sphere_diameter_mm",
+        str(args.sphere_diameter_mm),
+        "--downsamp_xy",
+        str(args.downsamp_xy),
+        "--downsamp_z",
+        str(args.downsamp_z),
+        "--z_start",
+        str(args.z_start),
+        "--num_iter",
+        str(args.num_iter),
+        "--progress_every",
+        str(args.progress_every),
+        "--batch_size",
+        str(args.batch_size),
+        "--lr_shift",
+        str(args.lr_shift),
+        "--lr_axis",
+        str(args.lr_axis),
+        "--lr_angle",
+        str(args.lr_angle),
+        "--lr_deform",
+        str(args.lr_deform),
+        "--TV2_reg",
+        str(args.TV2_reg),
+        "--deform_downsample_factor_xy",
+        str(args.deform_downsample_factor_xy),
+        "--deform_downsample_factor_z",
+        str(args.deform_downsample_factor_z),
+        "--Uz_penalty_weight",
+        str(args.Uz_penalty_weight),
+        "--device",
+        str(args.device),
+        "--output_downsample_xy",
+        str(args.output_downsample_xy),
+        "--output_downsample_z",
+        str(args.output_downsample_z),
+        "--upsample_order",
+        str(args.upsample_order),
+        "--smooth_method",
+        str(args.smooth_method),
+        "--smooth_sigma",
+        str(args.smooth_sigma),
+        "--remap_interp",
+        str(args.remap_interp),
+        "--remap_max_iter",
+        str(args.remap_max_iter),
+    ]
+    if args.z_end is not None:
+        repro_parts.extend(["--z_end", str(args.z_end)])
+    if args.lock_global_shift:
+        repro_parts.append("--lock_global_shift")
+    if args.skip_grids:
+        repro_parts.append("--skip_grids")
+    if args.save_comparison_figure:
+        repro_parts.append("--save_comparison_figure")
+    if args.trace_mse:
+        repro_parts.append("--trace_mse")
+    if args.remap_to_reference:
+        repro_parts.append("--remap_to_reference")
+    repro_command = " ".join(repro_parts)
+
     run_info_lines = [
         "deformation_tracking.py",
         f"out_dir={out_dir}",
@@ -1135,6 +1383,9 @@ def main() -> None:
         f"smooth_sigma={args.smooth_sigma}",
         f"save_comparison_figure={args.save_comparison_figure}",
         f"trace_mse={args.trace_mse}",
+        f"remap_to_reference={args.remap_to_reference}",
+        f"remap_interp={args.remap_interp}",
+        f"remap_max_iter={args.remap_max_iter}",
         "---",
         f"shape_xyz_final={(nx, ny, nz)}",
         f"dxy_final_um={dxy_final_um}",
@@ -1155,6 +1406,9 @@ def main() -> None:
                 f"mse_curve_png={out_dir / 'mse_curve.png'}",
             ]
         )
+    if args.remap_to_reference:
+        run_info_lines.append("remap_stage=coarse_then_upsample")
+    run_info_lines.extend(["---", "repro_cli_command=", repro_command])
     (out_dir / "run_info.txt").write_text("\n".join(run_info_lines) + "\n", encoding="utf-8")
 
 

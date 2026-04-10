@@ -173,6 +173,53 @@ class TestSmoothDisplacementField:
 
 
 @pytest.mark.unit
+class TestRemapDisplacementLagrangian:
+    def test_zero_field_small_grid(self) -> None:
+        nx, ny, nz = 6, 7, 8
+        x = np.linspace(0.0, (nx - 1) * 1e-4, nx)
+        y = np.linspace(0.0, (ny - 1) * 1e-4, ny)
+        z = np.linspace(0.0, (nz - 1) * 1e-4, nz)
+        z0 = np.zeros((nx, ny, nz), dtype=np.float64)
+        rx, ry, rz = dt.remap_displacement_lagrangian_griddata(z0, z0, z0, x, y, z, method="linear")
+        assert np.allclose(rx, 0.0, atol=1e-9)
+        assert np.allclose(ry, 0.0, atol=1e-9)
+        assert np.allclose(rz, 0.0, atol=1e-9)
+
+    def test_uniform_translation_recovered(self) -> None:
+        nx, ny, nz = 10, 10, 10
+        d = 1e-5
+        x = np.arange(nx, dtype=np.float64) * d
+        y = np.arange(ny, dtype=np.float64) * d
+        z = np.arange(nz, dtype=np.float64) * d
+        ux = np.full((nx, ny, nz), 2e-6, dtype=np.float64)
+        uy = np.full((nx, ny, nz), -1.5e-6, dtype=np.float64)
+        uz = np.full((nx, ny, nz), 0.5e-6, dtype=np.float64)
+        rx, ry, rz = dt.remap_displacement_lagrangian_griddata(ux, uy, uz, x, y, z, method="linear")
+        assert np.allclose(rx, 2e-6, rtol=1e-5, atol=1e-8)
+        assert np.allclose(ry, -1.5e-6, rtol=1e-5, atol=1e-8)
+        assert np.allclose(rz, 0.5e-6, rtol=1e-5, atol=1e-8)
+
+    def test_shape_mismatch_raises(self) -> None:
+        u2 = np.zeros((2, 2, 2), dtype=np.float64)
+        ax_ok = np.array([0.0, 1.0])
+        ax_wrong = np.array([0.0, 1.0, 2.0])
+        with pytest.raises(ValueError, match="Axis lengths"):
+            dt.remap_displacement_lagrangian_griddata(
+                u2, u2, u2, ax_wrong, ax_ok, ax_ok, method="nearest"
+            )
+
+    def test_coarse_reference_axes_match_full_when_same_resolution(self) -> None:
+        n = 7
+        x = np.arange(n, dtype=np.float64) * 1e-6
+        y = np.arange(n, dtype=np.float64) * 2e-6
+        z = np.arange(n, dtype=np.float64) * 3e-6
+        xc, yc, zc = dt.coarse_reference_axes_m(x, y, z, n, n, n)
+        np.testing.assert_allclose(xc, x)
+        np.testing.assert_allclose(yc, y)
+        np.testing.assert_allclose(zc, z)
+
+
+@pytest.mark.unit
 class TestUnlinkIfExists:
     def test_removes_file(self, tmp_path: Path) -> None:
         p = tmp_path / "old.npy"
