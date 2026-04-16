@@ -295,6 +295,31 @@ class TestMergeStepParams:
 
 
 class TestSyncStepParams:
+    def test_removes_params_not_in_argparse(self):
+        step = {
+            "common": {
+                "essential": [{"key": "method", "type": "select", "options": [{"value": "physics"}]}],
+                "advanced": [{"key": "legacy_only", "type": "number", "default": 1}],
+            },
+            "methods": {
+                "physics": {
+                    "essential": [{"key": "num_iter", "type": "number"}],
+                    "advanced": [{"key": "removed_flag", "type": "boolean"}],
+                }
+            },
+        }
+        scanned = {
+            "method": ArgSpec(key="method", type="select", options=["physics"]),
+            "num_iter": ArgSpec(key="num_iter", type="number"),
+        }
+        msgs = sync_step_params(step, scanned)
+        keys_common_adv = [p["key"] for p in step["common"]["advanced"]]
+        keys_phys_adv = [p["key"] for p in step["methods"]["physics"]["advanced"]]
+        assert "legacy_only" not in keys_common_adv
+        assert "removed_flag" not in keys_phys_adv
+        assert any("removed param 'legacy_only'" in m for m in msgs)
+        assert any("removed param 'removed_flag'" in m for m in msgs)
+
     def test_prunes_select_options(self):
         step = {
             "common": {
@@ -439,13 +464,23 @@ class TestGenerate:
 
 class TestMainEntry:
     @patch("fim.app.schema_generator.generate")
-    @patch("sys.argv", ["prog"])
-    def test_main_prints_json_when_not_write(self, mock_generate, capsys):
+    @patch("sys.argv", ["prog", "--dry-run"])
+    def test_main_dry_run_prints_json(self, mock_generate, capsys):
         mock_generate.return_value = {"version": "1", "steps": {}}
         main()
+        mock_generate.assert_called_once_with(write=False, sync=True)
         out = capsys.readouterr().out
         assert '"steps": {}' in out
 
-    @patch("sys.argv", ["schema_generator.py"])
-    def test_name_main_guard(self):
+    @patch("fim.app.schema_generator.generate")
+    @patch("sys.argv", ["prog"])
+    def test_main_default_writes_and_syncs(self, mock_generate):
+        mock_generate.return_value = {"version": "1", "steps": {}}
+        main()
+        mock_generate.assert_called_once_with(write=True, sync=True)
+
+    @patch("sys.argv", ["schema_generator.py", "--dry-run"])
+    @patch("fim.app.schema_generator.generate")
+    def test_name_main_guard(self, mock_generate):
+        mock_generate.return_value = {"version": "1", "steps": {}}
         runpy.run_module("fim.app.schema_generator", run_name="__main__", alter_sys=False)
