@@ -10,6 +10,7 @@ from fim.app.schema_generator import (
     _infer_ui_type,
     _literal,
     _option_value,
+    _prune_params_not_in_scanned,
     _prune_select_options,
     _repo_root,
     _schema_path,
@@ -319,6 +320,20 @@ class TestSyncStepParams:
         assert "removed_flag" not in keys_phys_adv
         assert any("removed param 'legacy_only'" in m for m in msgs)
         assert any("removed param 'removed_flag'" in m for m in msgs)
+
+    def test_prune_keeps_non_dict_entries_in_param_lists(self):
+        """Non-dict items in essential/advanced are preserved (defensive pass-through)."""
+        step = {
+            "essential": [
+                "reserved_slot",
+                {"key": "only_arg", "type": "text"},
+            ],
+            "advanced": [],
+        }
+        scanned = {"only_arg": ArgSpec(key="only_arg", type="text")}
+        _prune_params_not_in_scanned(step, scanned)
+        assert step["essential"][0] == "reserved_slot"
+        assert step["essential"][1]["key"] == "only_arg"
 
     def test_prunes_select_options(self):
         step = {
