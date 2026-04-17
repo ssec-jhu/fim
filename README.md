@@ -83,6 +83,8 @@ fim-ui
 Open **http://127.0.0.1:8000/** (use `fim-ui --port 8001` if 8000 is busy).  
 Equivalent to `uvicorn fim.app.main:app --reload`. In production use `--no-reload` and tune `--host` as needed.
 
+![FIM web UI — workflow steps, parameters, and output](docs/_static/fim-ui.png)
+
 Form fields and defaults in the browser are driven by `fim/app/schemas/fim_params.schema.json`.
 
 2. **CLI — direct script execution**
