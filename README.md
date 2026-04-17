@@ -30,16 +30,16 @@ each module’s own `--help` and flags (not a separate schema-driven CLI).
 
 ## Setup and run (choose one path)
 
-FIM offers two installation paths depending on your role and technical needs:
+FIM offers three installation paths depending on your role and technical needs:
 
-| | **Path A — Conda / pip install** | **Path B — Docker container** |
-|---|-----------------------------------|--------------------------------|
-| **Audience** | Developers who edit code, add models, or tune parameters | Users who run FIM in the web browser; no local Python installation is required |
-| **Prerequisites** | Git, Conda | Docker Desktop |
-| **Install** | `git clone … && pip install -e .` | `docker run --rm -p 8000:8000 -v ~/fim-output:/data ghcr.io/ssec-jhu/fim` |
-| **Run options** | Web UI or CLI | Web UI only |
+| | **Path A — Conda / pip install** | **Path B — Docker container** | **Path C — Windows installer script** |
+|---|-----------------------------------|--------------------------------|----------------------------------------|
+| **Audience** | Developers who edit code, add models, or tune parameters | Users who run FIM in the web browser; no local Python installation is required | Windows users who want one-click setup |
+| **Prerequisites** | Git, Conda | Docker Desktop | Windows 10/11 with internet access |
+| **Install** | `git clone … && pip install -e .` | `docker run --rm -p 8000:8000 -v ~/fim-output:/data ghcr.io/ssec-jhu/fim` | Run `install_fim_v1.bat` |
+| **Run options** | Web UI or CLI | Web UI only | Web UI or CLI (inside `fim_env`) |
 
-Choose one path — they are independent. Full steps are under **Path A** and **Path B** below.
+Choose one path — they are independent. Full steps are under **Path A**, **Path B**, and **Path C** below.
 
 ### Path A — Conda / pip install
 
@@ -100,6 +100,51 @@ python -m fim.refactor.deformation_tracking \
 python -m fim.refactor.main_VFM \
     --data_path path/to/output \
     --model linear
+```
+
+### Path C — Windows batch installer (`install_fim_v1.bat`)
+
+Use this path if you are on Windows and want an automated setup.
+
+---
+
+**Install (one click)**
+
+1. Open this repo folder in File Explorer.
+2. Double-click `install_fim_v1.bat` (or run it from `cmd`).
+3. Follow prompts for install location and optional immediate UI launch.
+
+The script will automatically:
+- install Git (if missing),
+- install Miniconda (if missing),
+- create `fim_env` (Python 3.11),
+- clone/update the FIM repo,
+- run `pip install -e .` with dependencies.
+
+---
+
+**Run after install**
+
+`install_fim_v1.bat` already includes an end-of-install prompt:
+- `Launch FIM web UI now? [Y/n]`
+- If you choose **Y** (default), it starts `fim-ui` and opens **http://127.0.0.1:8000/** automatically.
+
+You only need manual commands if you skip launch (`n`) or start FIM later:
+
+In **Anaconda Prompt** or `cmd`:
+
+```bat
+conda activate fim_env
+fim-ui
+```
+
+Then open **http://127.0.0.1:8000/**.
+
+CLI example:
+
+```bat
+conda activate fim_env
+python -m fim.app.cli list-steps
 ```
 
 ### Path B — Docker container
