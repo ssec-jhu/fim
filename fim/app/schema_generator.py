@@ -217,15 +217,55 @@ def _prune_select_options(param: dict[str, Any], valid_choices: list[Any]) -> No
     param["options"] = [o for o in opts if _option_value(o) in valid_set]
 
 
+def _prune_params_not_in_scanned(step_obj: dict[str, Any], scanned: dict[str, ArgSpec]) -> list[str]:
+    """Remove param entries whose ``key`` is not defined in the scanned argparse (mirror of merge adds)."""
+    scanned_keys = set(scanned.keys())
+    messages: list[str] = []
+
+    def _prune_lists(container: dict[str, Any]) -> None:
+        for list_name in ("essential", "advanced"):
+            lst = container.get(list_name)
+            if not isinstance(lst, list):
+                continue
+            kept: list[Any] = []
+            for item in lst:
+                if not isinstance(item, dict):
+                    kept.append(item)
+                    continue
+                k = item.get("key")
+                if not isinstance(k, str) or not k:
+                    kept.append(item)
+                    continue
+                if k not in scanned_keys:
+                    messages.append(f"  removed param '{k}' (not in argparse)")
+                    continue
+                kept.append(item)
+            container[list_name] = kept
+
+    if "essential" in step_obj or "advanced" in step_obj:
+        _prune_lists(step_obj)
+    if isinstance(step_obj.get("common"), dict):
+        _prune_lists(step_obj["common"])
+    if isinstance(step_obj.get("methods"), dict):
+        for m in step_obj["methods"].values():
+            if isinstance(m, dict):
+                _prune_lists(m)
+
+    return messages
+
+
 def sync_step_params(step_obj: dict[str, Any], scanned: dict[str, ArgSpec]) -> list[str]:
     """Prune schema entries that no longer exist in the scanned argparse definitions.
 
+    - Removes param rows whose keys are not present in argparse (``--long`` flags).
     - Removes select options not in scanned choices.
     - Removes ``methods`` blocks whose key is not in any scanned select choices.
 
     Returns a list of human-readable messages describing what was pruned.
     """
     messages: list[str] = []
+
+    messages.extend(_prune_params_not_in_scanned(step_obj, scanned))
 
     # --- Collect all param containers ---
     def _all_params(container: dict[str, Any]) -> list[dict[str, Any]]:
@@ -308,17 +348,30 @@ def generate(write: bool = False, sync: bool = False) -> dict[str, Any]:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Generate/refresh fim_params.schema.json from argparse definitions.")
-    p.add_argument("--write", action="store_true", help="Write updates back to fim/app/schemas/fim_params.schema.json")
+    p = argparse.ArgumentParser(
+        description=(
+            "Refresh fim/app/schemas/fim_params.schema.json from argparse in "
+            "fim/refactor/deformation_tracking.py and main_VFM.py. "
+            "Default: merge from code, sync (add/update/remove to match argparse), and write the file."
+        )
+    )
     p.add_argument(
-        "--sync",
+        "--dry-run",
         action="store_true",
-        help="Also prune stale options and method blocks that no longer exist in argparse choices",
+        help="Merge and sync in memory only; print JSON to stdout (do not write the schema file).",
+    )
+    p.add_argument(
+        "--no-sync",
+        action="store_true",
+        help="Merge and write only; skip pruning (removed params, stale select options, orphan method blocks).",
     )
     args = p.parse_args()
 
-    out = generate(write=args.write, sync=args.sync)
-    if not args.write:
+    write = not args.dry_run
+    sync = not args.no_sync
+
+    out = generate(write=write, sync=sync)
+    if args.dry_run:
         print(json.dumps(out, indent=2))
 
 

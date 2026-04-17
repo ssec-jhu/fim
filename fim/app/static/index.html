@@ -147,8 +147,52 @@
         }
         .section-title::before { content: "▸"; margin-right: 8px; color: #667eea; }
 
+        /* Stack "Essential Parameters —" and step title so names like "Inverse Modeling" stay on one line */
+        .section-title.section-title-stacked {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+        }
+        .section-title.section-title-stacked::before { display: none; }
+        .section-title-row {
+            display: flex;
+            align-items: center;
+        }
+        .section-title-chevron {
+            margin-right: 8px;
+            color: #667eea;
+            flex-shrink: 0;
+        }
+        .section-title-secondary {
+            font-weight: 600;
+            color: #333;
+            line-height: 1.3;
+            padding-left: calc(1em + 8px);
+            white-space: nowrap;
+        }
+
+        .advanced-summary-stacked {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 10px;
+            list-style: none;
+        }
+        .advanced-summary-stacked::-webkit-details-marker { display: none; }
+
         .input-group { margin-bottom: 15px; }
         .input-group label { display: block; margin-bottom: 5px; font-weight: 500; color: #555; }
+        .input-group-description {
+            font-size: 11px;
+            color: #888;
+            margin: -2px 0 4px 0;
+            line-height: 1.35;
+            max-width: 100%;
+        }
         .input-group input, .input-group select {
             width: 100%;
             padding: 10px;
@@ -270,7 +314,6 @@
         }
 
         .advanced-options { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px; }
-        .advanced-options summary { cursor: pointer; font-weight: 600; color: #667eea; margin-bottom: 10px; }
 
         .tabs { display: flex; border-bottom: 2px solid #e9ecef; margin-bottom: 20px; }
         .tab { padding: 12px 24px; cursor: pointer; border: none; background: none; font-size: 1em; font-weight: 500; color: #666; position: relative; }
@@ -535,12 +578,23 @@
         <div class="main-content">
             <aside class="sidebar">
                 <div class="section">
-                    <div class="section-title" id="essential-title">Essential Parameters</div>
+                    <div class="section-title section-title-stacked" id="essential-title-wrap">
+                        <div class="section-title-row">
+                            <span class="section-title-chevron" aria-hidden="true">▸</span>
+                            <span>Essential Parameters —</span>
+                        </div>
+                        <div class="section-title-secondary" id="essential-title-step"></div>
+                    </div>
                     <div id="essential-params"></div>
                 </div>
 
                 <details class="advanced-options">
-                    <summary id="advanced-title">⚙️ Advanced Parameters</summary>
+                    <summary class="advanced-summary-stacked" id="advanced-title-wrap">
+                        <div class="section-title-row">
+                            <span>⚙️ Advanced Parameters —</span>
+                        </div>
+                        <div class="section-title-secondary" id="advanced-title-step"></div>
+                    </summary>
                     <div id="advanced-params" style="margin-top: 10px;"></div>
                 </details>
 
@@ -815,8 +869,8 @@
 
             if (spec.description) {
                 const desc = document.createElement('div');
+                desc.className = 'input-group-description';
                 desc.textContent = spec.description;
-                desc.style.cssText = 'font-size:11px; color:#888; margin:-2px 0 4px 0; line-height:1.3;';
                 wrap.appendChild(desc);
             }
 
@@ -1167,8 +1221,9 @@
 
             document.getElementById('schema-json').textContent = JSON.stringify(schema, null, 2);
             document.getElementById('output-title').textContent = `Output: ${schema.title || stepId}`;
-            document.getElementById('essential-title').textContent = `Essential Parameters — ${schema.title || stepId}`;
-            document.getElementById('advanced-title').textContent = `⚙️ Advanced Parameters — ${schema.title || stepId}`;
+            const stepLabel = schema.title || stepId;
+            document.getElementById('essential-title-step').textContent = stepLabel;
+            document.getElementById('advanced-title-step').textContent = stepLabel;
             renderSchema(schema);
             // Do not call setLog here: switching steps should not clear the Output log from the last run
             // (log is reset when the user starts a new run).
