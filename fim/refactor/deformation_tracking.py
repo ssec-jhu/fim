@@ -803,7 +803,7 @@ def main() -> None:
     p.add_argument(
         "--sphere_diameter_mm",
         type=float,
-        default=0.5,
+        default=1,
         help="Sphere / indenter diameter in mm (metadata; kept in sync with distortion step in the UI).",
     )
     p.add_argument("--downsamp_xy", type=int, default=2, help="Downsample factor in XY")
@@ -818,16 +818,16 @@ def main() -> None:
         default=100,
         help="Emit a progress line every N iterations (for UI polling).",
     )
-    p.add_argument("--batch_size", type=int, default=500000, help="Random samples per iteration")
+    p.add_argument("--batch_size", type=int, default=750000, help="Random samples per iteration")
     p.add_argument("--lr_shift", type=float, default=5e-2, help="Learning rate for global shift")
     p.add_argument("--lr_axis", type=float, default=1e-3, help="Learning rate for rotation axis")
     p.add_argument("--lr_angle", type=float, default=1e-5, help="Learning rate for rotation angle")
-    p.add_argument("--lr_deform", type=float, default=0.1, help="Learning rate for deformation field")
+    p.add_argument("--lr_deform", type=float, default=0.3, help="Learning rate for deformation field")
     p.add_argument("--TV2_reg", type=float, default=30, help="TV2 regularization weight (0 disables)")
     p.add_argument("--lock_global_shift", action="store_true", help="Lock global shift at initial estimate")
 
     p.add_argument("--deform_downsample_factor_xy", type=int, default=10, help="Coarse deformation grid factor XY")
-    p.add_argument("--deform_downsample_factor_z", type=int, default=8, help="Coarse deformation grid factor Z")
+    p.add_argument("--deform_downsample_factor_z", type=int, default=2, help="Coarse deformation grid factor Z")
     p.add_argument(
         "--Uz_penalty_weight",
         type=float,
