@@ -167,3 +167,10 @@ cython_debug/
 
 # File system
 .DS_Store
+
+# FIM downloaded test fixtures (fetched on demand by fim.util.fetch_dataset).
+# The small `simulate/` directory IS tracked and must remain visible.
+fim/test_data/*
+!fim/test_data/simulate/
+!fim/test_data/simulate/**
+!fim/test_data/.gitkeep

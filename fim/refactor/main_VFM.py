@@ -8,6 +8,7 @@ import time
 import numpy as np
 from scipy.optimize import least_squares
 
+from fim import util as fim_util
 from fim.refactor.material_model import MaterialModel
 from fim.refactor.vws_models import (
     central_differentiation,
@@ -17,16 +18,25 @@ from fim.refactor.vws_models import (
     set_depth_indentation_from_Uz,
 )
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 
-# Define root path to test data
-DATA_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "test_data"))
-DEFAULT_PATHS = {
-    "linear": os.path.join(DATA_ROOT, "80um"),
-    "hgo": os.path.join(DATA_ROOT, "HGO"),
-    "nh": os.path.join(DATA_ROOT, "NH"),
+# Map ``--model`` to the on-demand fixture name in fim.util.DATASETS.
+# The corresponding archive is downloaded lazily when --data_path is omitted.
+DEFAULT_DATASETS = {
+    "linear": "80um",
+    "hgo": "HGO",
+    "nh": "NH",
 }
+
+
+def _resolve_default_data_path(model_name: str) -> str:
+    """Return the cached path for the default fixture of ``model_name``.
+
+    Downloads the dataset on first use via :func:`fim.util.fetch_dataset`.
+    """
+    dataset = DEFAULT_DATASETS[model_name]
+    return str(fim_util.resolve_dataset(dataset, auto_fetch=True))
+
 
 # CLI
 parser = argparse.ArgumentParser(description="Run FIM Material Model Evaluation")
@@ -64,7 +74,7 @@ args = parser.parse_args()
 
 # Resolve inputs
 model_name = args.model
-data_path = args.data_path if args.data_path else DEFAULT_PATHS[model_name]
+data_path = args.data_path if args.data_path else _resolve_default_data_path(model_name)
 
 
 def run_inverse_model(displacement_field, X, Y, Z, volume_matrix, initial_guess, bounds, material_model):
