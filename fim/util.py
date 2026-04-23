@@ -41,6 +41,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -148,12 +149,23 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+_ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
+
+
 def _download(url: str, dst: Path) -> None:
-    """Stream ``url`` to ``dst`` (atomic: writes to ``<dst>.part`` first)."""
+    """Stream ``url`` to ``dst`` (atomic: writes to ``<dst>.part`` first).
+
+    Only ``http://`` and ``https://`` URLs are accepted; other schemes
+    (``file://``, ``ftp://``, …) are rejected to avoid accidentally
+    reading arbitrary local files via ``$FIM_DATA_URL_BASE``.
+    """
+    scheme = urllib.parse.urlsplit(url).scheme.lower()
+    if scheme not in _ALLOWED_URL_SCHEMES:
+        raise ValueError(f"Refusing to fetch {url!r}: scheme {scheme!r} not in {sorted(_ALLOWED_URL_SCHEMES)}.")
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name(dst.name + ".part")
     try:
-        with urllib.request.urlopen(url) as resp, tmp.open("wb") as f:  # noqa: S310
+        with urllib.request.urlopen(url) as resp, tmp.open("wb") as f:  # noqa: S310  # nosec B310 - scheme validated above
             shutil.copyfileobj(resp, f, length=_CHUNK)
     except urllib.error.URLError as exc:
         tmp.unlink(missing_ok=True)
@@ -161,20 +173,38 @@ def _download(url: str, dst: Path) -> None:
     tmp.replace(dst)
 
 
+def _is_within(parent: Path, child: Path) -> bool:
+    try:
+        child.resolve().relative_to(parent.resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def _safe_extract_tar(tar_path: Path, dest: Path) -> None:
-    """Extract ``tar_path`` into ``dest``, rejecting path-traversal entries."""
+    """Extract ``tar_path`` into ``dest``, rejecting path-traversal entries.
+
+    Each member is individually validated (directory confinement + regular
+    file / directory only) and extracted one at a time; ``extractall`` is
+    never called so this is safe on pre-3.12 runtimes that lack the
+    ``filter='data'`` default.
+    """
     dest.mkdir(parents=True, exist_ok=True)
-    resolved_dest = dest.resolve()
     with tarfile.open(tar_path, "r:*") as tf:
         for member in tf.getmembers():
-            target = (dest / member.name).resolve()
-            if os.path.commonpath([str(resolved_dest), str(target)]) != str(resolved_dest):
+            if not (member.isreg() or member.isdir()):
+                raise RuntimeError(
+                    f"Unsupported tar entry {member.name!r} (type={member.type!r}); "
+                    f"only regular files and directories are allowed."
+                )
+            if member.name.startswith("/") or ".." in Path(member.name).parts:
                 raise RuntimeError(f"Unsafe path in archive: {member.name!r}")
-        # CPython 3.12+ supports a filter kwarg; use it when available.
-        if sys.version_info >= (3, 12):
-            tf.extractall(dest, filter="data")
-        else:
-            tf.extractall(dest)  # noqa: S202 — members validated above
+            target = dest / member.name
+            if not _is_within(dest, target):
+                raise RuntimeError(f"Unsafe path in archive: {member.name!r}")
+            # Strip link info and world-writable bits defensively.
+            member.mode = member.mode & 0o755
+            tf.extract(member, dest)  # noqa: S202  # member validated: type, name, and resolved path
 
 
 # ---------------------------------------------------------------------------
