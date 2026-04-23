@@ -252,11 +252,44 @@ fim/
 │   └── schemas/       # JSON parameter schemas (web UI)
 ├── refactor/          # Core algorithms
 │   ├── deformation_tracking.py   # Step 1: 3D displacement estimation
-│   ├── main_VFM.py              # Step 2: Inverse material characterization
-│   └── vws_models.py            # VFM model implementations
+│   ├── main_VFM.py               # Step 2: Inverse material characterization
+│   └── vws_models.py             # VFM model implementations
 ├── tests/             # Unit tests
+├── test_data/         # Small demo TIFFs (simulate/); large fixtures
+│                      # are downloaded on demand — see "Test data" below.
+├── util.py            # Package helpers and dataset fetcher
 └── legacy/            # Previous implementations (not actively maintained)
 ```
+
+---
+
+## Test data
+
+Large reference and benchmark fixtures (~260 MB of `.npy` arrays and `.inp`
+meshes) are **not** stored in the repository. They are published as assets on
+the [`data-v1` GitHub release](https://github.com/ssec-jhu/fim/releases/tag/data-v1)
+and fetched on demand by `fim.util.fetch_dataset`.
+
+```bash
+# List available datasets and the local cache directory
+python -m fim.util list
+python -m fim.util where
+
+# Pre-download one or more datasets (verified by SHA-256 after download)
+python -m fim.util fetch 80um HGO NH exp2-benchmark
+```
+
+The `main_VFM` CLI also downloads the appropriate fixture automatically when
+you omit `--data_path`:
+
+```bash
+python -m fim.refactor.main_VFM --model hgo     # auto-fetches fim/test_data/HGO
+```
+
+By default data is cached under `<fim package>/test_data/<name>`. Set
+`FIM_DATA_DIR` to redirect the cache (useful for read-only installs or to
+share the cache across virtual environments), or `FIM_DATA_URL_BASE` to
+point at a mirror of the release assets.
 
 ---
 

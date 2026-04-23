@@ -29,9 +29,14 @@ htmlcov
 # Docs build output
 docs/_build
 
-# Large experiment outputs and bulky test arrays (not needed to run the UI)
+# Large experiment outputs (not needed to run the UI)
 fim/**/output/
-fim/test_data/**/*.npy
+
+# Only the small tracked TIFF fixtures should ship in the image; everything
+# else under fim/test_data/ is fetched on demand by fim.util.fetch_dataset.
+fim/test_data/*
+!fim/test_data/simulate/
+!fim/test_data/simulate/**
 
 # Editor / OS
 .idea
