@@ -200,7 +200,7 @@ def _safe_extract_tar(tar_path: Path, dest: Path) -> None:
             if member.name.startswith("/") or ".." in Path(member.name).parts:
                 raise RuntimeError(f"Unsafe path in archive: {member.name!r}")
             target = dest / member.name
-            if not _is_within(dest, target):
+            if not _is_within(dest, target):  # pragma: no cover - defense-in-depth for symlinked dest
                 raise RuntimeError(f"Unsafe path in archive: {member.name!r}")
             # Strip link info and world-writable bits defensively.
             member.mode = member.mode & 0o755
@@ -339,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
             print(path)
         return 0
 
-    return 2
+    return 2  # pragma: no cover - argparse rejects unknown subcommands before we get here
 
 
 if __name__ == "__main__":  # pragma: no cover

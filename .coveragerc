@@ -6,4 +6,6 @@ omit =
     _version.py
 [report]
 exclude_lines =
+    pragma: no cover
     @abstractmethod
+    if __name__ == .__main__.:
