@@ -2,26 +2,90 @@
 Description: Implements full-field virtual fields method computations for supported material models.
 """
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+
 import numpy as np
 
-depth_indentation = 4.1e-05  # 3.2e-05  # meters (default)
-sphere_radius = 1e-3  # meters (1 mm)
-contact_radius = np.sqrt(depth_indentation * sphere_radius)
+# ---------------------------------------------------------------------------
+# Indentation parameters
+#
+# Historically this module exposed three independent module-level globals
+# (``depth_indentation``, ``sphere_radius``, ``contact_radius``) and a helper
+# that used a multi-variable ``global`` statement to keep them consistent.
+# That made the API brittle: if a caller mutated one value, the invariant
+# ``contact_radius == sqrt(depth_indentation * sphere_radius)`` silently
+# broke and every virtual-field function downstream saw stale state.
+#
+# The state now lives in a single immutable value object (``IndentationParams``)
+# held in the module-private ``_INDENT``. The three public names remain
+# available via PEP 562 ``__getattr__`` for backwards compatibility.
+# ---------------------------------------------------------------------------
+_MIN_DEPTH = 1e-12  # meters; avoids contact_radius == 0 when Uz is all-zero
+_DEFAULT_DEPTH = 4.1e-05  # meters
+_DEFAULT_SPHERE_RADIUS = 1e-3  # meters (1 mm)
+
+
+@dataclass(frozen=True)
+class IndentationParams:
+    """Immutable bundle of indentation parameters used by all virtual fields."""
+
+    depth: float
+    sphere_radius: float
+
+    @property
+    def contact_radius(self) -> float:
+        return float(np.sqrt(self.depth * self.sphere_radius))
+
+    @classmethod
+    def from_Uz(cls, Uz: np.ndarray, *, sphere_radius: float = _DEFAULT_SPHERE_RADIUS) -> IndentationParams:
+        """Build an :class:`IndentationParams` from a measured Uz displacement field."""
+        depth = max(float(np.max(np.abs(Uz))), _MIN_DEPTH)
+        return cls(depth=depth, sphere_radius=sphere_radius)
+
+
+_INDENT: IndentationParams = IndentationParams(depth=_DEFAULT_DEPTH, sphere_radius=_DEFAULT_SPHERE_RADIUS)
+
+
+def get_indentation() -> IndentationParams:
+    """Return the current module-wide indentation parameters (immutable)."""
+    return _INDENT
+
+
+def set_indentation(params: IndentationParams) -> None:
+    """Replace the module-wide indentation parameters atomically."""
+    global _INDENT
+    _INDENT = params
 
 
 def set_depth_indentation_from_Uz(Uz: np.ndarray) -> None:
-    """Update indentation depth used by virtual fields: depth_indentation = max(abs(Uz))."""
-    global depth_indentation, contact_radius
-    depth_indentation = float(np.max(np.abs(Uz)))
-    # avoid a=0
-    if depth_indentation < 1e-12:
-        depth_indentation = 1e-12
-    contact_radius = np.sqrt(depth_indentation * sphere_radius)
+    """Update indentation depth used by virtual fields: depth_indentation = max(abs(Uz)).
+
+    Equivalent to ``set_indentation(IndentationParams.from_Uz(Uz))``. Preserved
+    as the historical entry point so callers of :mod:`fim.refactor.main_VFM`
+    keep working.
+    """
+    set_indentation(IndentationParams.from_Uz(Uz, sphere_radius=_INDENT.sphere_radius))
+
+
+def __getattr__(name: str):  # PEP 562
+    # Preserve the legacy module-level attribute names as read-only views onto
+    # the current IndentationParams. Writing them (``vm.depth_indentation = x``)
+    # still works as a plain module attribute but bypasses the invariant, so
+    # prefer ``set_indentation`` for mutation.
+    if name == "depth_indentation":
+        return _INDENT.depth
+    if name == "sphere_radius":
+        return _INDENT.sphere_radius
+    if name == "contact_radius":
+        return _INDENT.contact_radius
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def U_star_z_cos(x, y, z, L, H):
     t = z / H
-    a_0 = contact_radius * 2
+    a_0 = _INDENT.contact_radius * 2
     a = t * a_0
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
@@ -33,7 +97,7 @@ def U_star_z_cos(x, y, z, L, H):
 def U_star_z_pw(x, y, z, L, H):
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
-    a_0 = contact_radius * 1.25
+    a_0 = _INDENT.contact_radius * 1.25
     t = z / H
     a = a_0 * t
     return np.where(d <= a, c * t, np.where((d > a) & (d < L / 2), c * t * (L / 2 - d) / (L / 2 - a), 0))
@@ -73,7 +137,7 @@ def U_star_y_sin(x, y, z, L, H):
 
 def U_star_z_cos_devX(x, y, z, L, H):
     t = z / H
-    a_0 = contact_radius * 2
+    a_0 = _INDENT.contact_radius * 2
     a = t * a_0
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
@@ -84,7 +148,7 @@ def U_star_z_cos_devX(x, y, z, L, H):
 
 def U_star_z_cos_devY(x, y, z, L, H):
     t = z / H
-    a_0 = contact_radius * 2
+    a_0 = _INDENT.contact_radius * 2
     a = t * a_0
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
@@ -95,7 +159,7 @@ def U_star_z_cos_devY(x, y, z, L, H):
 
 def U_star_z_cos_devZ(x, y, z, L, H):
     t = z / H
-    a_0 = contact_radius * 2
+    a_0 = _INDENT.contact_radius * 2
     a = t * a_0
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
@@ -108,7 +172,7 @@ def U_star_z_cos_devZ(x, y, z, L, H):
 
 def U_star_z_pw_devX(x, y, z, L, H):
     c = 5e-5
-    a_0 = contact_radius * 1.25
+    a_0 = _INDENT.contact_radius * 1.25
     t = z / H
     a = a_0 * t
     d = np.sqrt(x**2 + y**2)
@@ -119,7 +183,7 @@ def U_star_z_pw_devX(x, y, z, L, H):
 
 def U_star_z_pw_devY(x, y, z, L, H):
     c = 5e-5
-    a_0 = contact_radius * 1.25
+    a_0 = _INDENT.contact_radius * 1.25
     t = z / H
     a = a_0 * t
     d = np.sqrt(x**2 + y**2)
@@ -130,7 +194,7 @@ def U_star_z_pw_devY(x, y, z, L, H):
 
 def U_star_z_pw_devZ(x, y, z, L, H):
     c = 5e-5
-    a_0 = contact_radius * 1.25
+    a_0 = _INDENT.contact_radius * 1.25
     d = np.sqrt(x**2 + y**2)
     t = z / H
     a = a_0 * t
@@ -268,7 +332,7 @@ def U_star_y_sin_devZ(x, y, z, L, H):
 def U_star_z_pw_vol(x, y, z, L, H):
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
-    a_0 = contact_radius * 2
+    a_0 = _INDENT.contact_radius * 2
     t = z / H
     a = a_0
     k = (c / 2 * (L / 4 - a) - c * L / 4) / ((L / 4 - a) / 2 + L / 8)
@@ -287,7 +351,7 @@ def U_star_z_pw_vol(x, y, z, L, H):
 def U_star_z_pw_vol_devX(x, y, z, L, H):
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
-    a_0 = contact_radius * 2
+    a_0 = _INDENT.contact_radius * 2
     t = z / H
     a = a_0
     k = (c / 2 * (L / 4 - a) - c * L / 4) / ((L / 4 - a) / 2 + L / 8)
@@ -305,7 +369,7 @@ def U_star_z_pw_vol_devX(x, y, z, L, H):
 def U_star_z_pw_vol_devY(x, y, z, L, H):
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
-    a_0 = contact_radius * 2
+    a_0 = _INDENT.contact_radius * 2
     t = z / H
     a = a_0
     k = (c / 2 * (L / 4 - a) - c * L / 4) / ((L / 4 - a) / 2 + L / 8)
@@ -323,7 +387,7 @@ def U_star_z_pw_vol_devY(x, y, z, L, H):
 def U_star_z_pw_vol_devZ(x, y, z, L, H):
     c = 5e-5
     d = np.sqrt(x**2 + y**2)
-    a_0 = contact_radius * 2
+    a_0 = _INDENT.contact_radius * 2
     a = a_0
     k = (c / 2 * (L / 4 - a) - c * L / 4) / ((L / 4 - a) / 2 + L / 8)
 
