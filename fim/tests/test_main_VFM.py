@@ -1,4 +1,5 @@
 import importlib
+import logging
 import runpy
 import sys
 from pathlib import Path
@@ -258,8 +259,10 @@ def test_main_block_executes_all_modes(monkeypatch, tmp_path, mode):
     monkeypatch.setattr(mm, "MaterialModel", _FakeMaterialModel, raising=True)
     monkeypatch.setattr(vwm, "read_input_file", _stub_read_input_file, raising=True)
 
-    # Execute the script block
-    runpy.run_module("fim.refactor.main_VFM", run_name="__main__")
+    # Execute the script block. main() now exits cleanly via raise SystemExit(0).
+    with pytest.raises(SystemExit) as excinfo:
+        runpy.run_module("fim.refactor.main_VFM", run_name="__main__")
+    assert excinfo.value.code == 0
 
 
 # =========================
@@ -372,6 +375,56 @@ def test_load_common_fields_partial_grids_load_from_grid_params_only(monkeypatch
     Xo, Yo, Zo, tensor, vol_out = mvf.load_common_fields(str(folder))
     assert Xo.shape == (nu, nu, nu)
     assert vol_out.shape == (nu, nu, nu)
+
+
+def test_import_has_no_side_effects(monkeypatch):
+    """Importing ``fim.refactor.main_VFM`` must not parse argv, reconfigure
+    logging, or trigger dataset downloads. Regression guard for the old
+    module-level ``parser.parse_args()`` / ``logging.basicConfig()`` pattern.
+    """
+    ensure_fake_scipy(monkeypatch)
+    # A hostile argv that would make argparse call sys.exit() if parsed at import.
+    monkeypatch.setattr(sys, "argv", ["prog", "--this-flag-does-not-exist"])
+
+    # Force a fresh import.
+    if "fim.refactor.main_VFM" in sys.modules:
+        del sys.modules["fim.refactor.main_VFM"]
+
+    before = list(logging.getLogger().handlers)
+    mvf = importlib.import_module("fim.refactor.main_VFM")
+    after = list(logging.getLogger().handlers)
+
+    assert before == after, "import must not reconfigure the root logger"
+    assert not hasattr(mvf, "args"), "args must not be defined at module scope"
+    assert not hasattr(mvf, "data_path"), "data_path must not be defined at module scope"
+    assert not hasattr(mvf, "model_name"), "model_name must not be defined at module scope"
+    assert callable(mvf.main)
+    assert callable(mvf.build_parser)
+
+
+def test_build_parser_defaults(monkeypatch):
+    mvf = import_mvf(monkeypatch)
+    args = mvf.build_parser().parse_args([])
+    assert args.model == "linear"
+    assert args.data_path is None
+    assert args.mesh_file is None
+
+
+def test_resolve_default_data_path_invokes_fim_util(monkeypatch, tmp_path):
+    mvf = import_mvf(monkeypatch)
+
+    recorded = {}
+
+    def fake_resolve(name, *, auto_fetch):
+        recorded["name"] = name
+        recorded["auto_fetch"] = auto_fetch
+        return tmp_path / name
+
+    monkeypatch.setattr(mvf.fim_util, "resolve_dataset", fake_resolve)
+
+    path = mvf._resolve_default_data_path("linear")
+    assert recorded == {"name": "80um", "auto_fetch": True}
+    assert path == str(tmp_path / "80um")
 
 
 def test_load_common_fields_stale_grids_rebuilt_from_grid_params(monkeypatch, tmp_path):

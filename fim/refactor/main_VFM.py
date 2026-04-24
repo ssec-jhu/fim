@@ -1,8 +1,14 @@
-"""Main script for running VFM inverse modeling with different material models"""
+"""Main script for running VFM inverse modeling with different material models.
+
+This module is safe to import: the CLI parser is not executed and no datasets
+are downloaded until :func:`main` is invoked (either from the
+``if __name__ == "__main__"`` guard or ``python -m fim.refactor.main_VFM``).
+"""
 
 import argparse
 import logging
 import os
+import sys
 import time
 
 import numpy as np
@@ -18,7 +24,7 @@ from fim.refactor.vws_models import (
     set_depth_indentation_from_Uz,
 )
 
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Map ``--model`` to the on-demand fixture name in fim.util.DATASETS.
 # The corresponding archive is downloaded lazily when --data_path is omitted.
@@ -38,43 +44,47 @@ def _resolve_default_data_path(model_name: str) -> str:
     return str(fim_util.resolve_dataset(dataset, auto_fetch=True))
 
 
-# CLI
-parser = argparse.ArgumentParser(description="Run FIM Material Model Evaluation")
-parser.add_argument("--model", type=str, default="linear", choices=["linear", "hgo", "nh"], help="Material model type")
-parser.add_argument("--data_path", type=str, help="Path to input data folder")
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the CLI parser.
 
-# Shared across models
-parser.add_argument("--force_n", type=float, default=4.18e-05, help="Applied indentation force (N)")
+    Kept as a function (not a module-level constant) so importing this module
+    has no side effects — the parser is only built when the script is run.
+    """
+    parser = argparse.ArgumentParser(description="Run FIM Material Model Evaluation")
+    parser.add_argument(
+        "--model", type=str, default="linear", choices=["linear", "hgo", "nh"], help="Material model type"
+    )
+    parser.add_argument("--data_path", type=str, help="Path to input data folder")
 
-# Linear model parameters
-parser.add_argument("--E1_init", type=float, default=15000, help="E1 initial guess (Pa)")
-parser.add_argument("--E2_init", type=float, default=15000, help="E2 initial guess (Pa)")
-parser.add_argument("--v12", type=float, default=0.49, help="Poisson ratio v12")
-parser.add_argument("--v23", type=float, default=0.49, help="Poisson ratio v23")
-parser.add_argument("--Gt", type=float, default=500, help="Shear modulus Gt (Pa)")
+    # Shared across models
+    parser.add_argument("--force_n", type=float, default=4.18e-05, help="Applied indentation force (N)")
 
-# HGO model parameters
-parser.add_argument("--C10_init", type=float, default=500, help="C10 initial guess (Pa) — isotropic ground matrix")
-parser.add_argument("--D1_init", type=float, default=1e-5, help="D1 initial guess — compressibility")
-parser.add_argument("--k1", type=float, default=2000, help="Fiber stiffness k1 (Pa)")
-parser.add_argument("--k2", type=float, default=5, help="Fiber nonlinearity k2")
-parser.add_argument("--kappa_init", type=float, default=0.05, help="Fiber dispersion kappa (0=aligned, 1/3=isotropic)")
+    # Linear model parameters
+    parser.add_argument("--E1_init", type=float, default=15000, help="E1 initial guess (Pa)")
+    parser.add_argument("--E2_init", type=float, default=15000, help="E2 initial guess (Pa)")
+    parser.add_argument("--v12", type=float, default=0.49, help="Poisson ratio v12")
+    parser.add_argument("--v23", type=float, default=0.49, help="Poisson ratio v23")
+    parser.add_argument("--Gt", type=float, default=500, help="Shear modulus Gt (Pa)")
 
-# NH model parameters (C10_init and D1_init are shared with HGO)
+    # HGO model parameters
+    parser.add_argument("--C10_init", type=float, default=500, help="C10 initial guess (Pa) — isotropic ground matrix")
+    parser.add_argument("--D1_init", type=float, default=1e-5, help="D1 initial guess — compressibility")
+    parser.add_argument("--k1", type=float, default=2000, help="Fiber stiffness k1 (Pa)")
+    parser.add_argument("--k2", type=float, default=5, help="Fiber nonlinearity k2")
+    parser.add_argument(
+        "--kappa_init", type=float, default=0.05, help="Fiber dispersion kappa (0=aligned, 1/3=isotropic)"
+    )
 
-# Optional mesh file for L/W/H dimensions (falls back to coordinate grids)
-parser.add_argument(
-    "--mesh_file",
-    type=str,
-    default=None,
-    help="Optional .inp mesh file for sample dimensions. If omitted, L/W/H are computed from coordinate grids.",
-)
+    # NH model parameters (C10_init and D1_init are shared with HGO)
 
-args = parser.parse_args()
-
-# Resolve inputs
-model_name = args.model
-data_path = args.data_path if args.data_path else _resolve_default_data_path(model_name)
+    # Optional mesh file for L/W/H dimensions (falls back to coordinate grids)
+    parser.add_argument(
+        "--mesh_file",
+        type=str,
+        default=None,
+        help="Optional .inp mesh file for sample dimensions. If omitted, L/W/H are computed from coordinate grids.",
+    )
+    return parser
 
 
 def run_inverse_model(displacement_field, X, Y, Z, volume_matrix, initial_guess, bounds, material_model):
@@ -326,10 +336,26 @@ def _get_dimensions(X, Y, Z, mesh_file=None):
     return L, W, H
 
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> int:
+    """Entry point for ``python -m fim.refactor.main_VFM``.
+
+    Parses CLI arguments, resolves the input data path (downloading the
+    default fixture on demand when ``--data_path`` is omitted), and runs the
+    requested material-model inverse problem.
+    """
+    # Configure the root logger only when the script is actually run; importing
+    # this module (e.g. from tests) must not reconfigure logging.
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO)
+
+    args = build_parser().parse_args(argv)
+
+    model_name = args.model
+    data_path = args.data_path if args.data_path else _resolve_default_data_path(model_name)
+
     start_time = time.time()
 
-    logging.info(f"Using model: {model_name}, data_path: {data_path}")
+    logger.info("Using model: %s, data_path: %s", model_name, data_path)
 
     if model_name == "linear":
         # === Linear Model ===
@@ -466,7 +492,10 @@ if __name__ == "__main__":
         nh_model.sensitivity_analysis_nh(disp_tensor, X, Y, Z, volume_matrix, L, H, deviation)
 
     # Flush stdout so sensitivity matrix prints complete before the final timing line
-    import sys
-
     sys.stdout.flush()
-    logging.info(f"Inverse step runtime: {time.time() - start_time:.1f} seconds")
+    logger.info("Inverse step runtime: %.1f seconds", time.time() - start_time)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
