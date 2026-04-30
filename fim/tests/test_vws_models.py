@@ -94,6 +94,75 @@ def test_increase_matrix_size():
     assert np.array_equal(b[:, :, -1], b[:, :, -2])
 
 
+def test_indentation_legacy_attrs_reflect_current_state():
+    """``vm.depth_indentation`` / ``contact_radius`` / ``sphere_radius`` must
+    track the current :class:`IndentationParams` even after a replacement.
+    """
+    original = vm.get_indentation()
+    try:
+        new = vm.IndentationParams(depth=2e-5, sphere_radius=1e-3)
+        vm.set_indentation(new)
+        assert vm.depth_indentation == 2e-5
+        assert vm.sphere_radius == 1e-3
+        assert np.isclose(vm.contact_radius, np.sqrt(2e-5 * 1e-3))
+        assert vm.get_indentation() is new
+    finally:
+        vm.set_indentation(original)
+
+
+def test_indentation_invariant_holds_after_rebind():
+    """Rebinding via :func:`set_indentation` must keep
+    ``contact_radius == sqrt(depth * sphere_radius)`` — the invariant the old
+    multi-global implementation could break.
+    """
+    original = vm.get_indentation()
+    try:
+        p = vm.IndentationParams(depth=4.1e-05, sphere_radius=1e-3)
+        vm.set_indentation(p)
+        assert np.isclose(p.contact_radius, np.sqrt(p.depth * p.sphere_radius))
+        # Functions reading contact_radius pick up the new value immediately.
+        X, Y, Z, L, H = make_grid(4, 4, 4)
+        X1, Y1, Z1 = X - L / 2, Y - L / 2, Z
+        baseline = vm.U_star_z_cos(X1, Y1, Z1, L, H).copy()
+
+        vm.set_indentation(vm.IndentationParams(depth=1.0e-04, sphere_radius=1e-3))
+        updated = vm.U_star_z_cos(X1, Y1, Z1, L, H)
+        assert not np.allclose(baseline, updated), (
+            "U_star_z_cos must see the new contact_radius after set_indentation()."
+        )
+    finally:
+        vm.set_indentation(original)
+
+
+def test_set_depth_indentation_from_Uz_uses_max_abs():
+    original = vm.get_indentation()
+    try:
+        Uz = np.array([[-3e-5, 0.0], [1e-5, -7e-5]])
+        vm.set_depth_indentation_from_Uz(Uz)
+        assert np.isclose(vm.depth_indentation, 7e-5)
+        # sphere_radius is preserved across this convenience entry point.
+        assert vm.sphere_radius == original.sphere_radius
+        assert np.isclose(vm.contact_radius, np.sqrt(7e-5 * original.sphere_radius))
+    finally:
+        vm.set_indentation(original)
+
+
+def test_set_depth_indentation_from_Uz_zero_clamps_to_min():
+    original = vm.get_indentation()
+    try:
+        vm.set_depth_indentation_from_Uz(np.zeros((2, 2)))
+        # Clamped to _MIN_DEPTH (1e-12) so contact_radius stays > 0.
+        assert vm.depth_indentation > 0
+        assert vm.contact_radius > 0
+    finally:
+        vm.set_indentation(original)
+
+
+def test_vws_models_unknown_attribute_raises():
+    with pytest.raises(AttributeError):
+        _ = vm.does_not_exist_xyz
+
+
 def test_read_input_file_parses(tmp_path):
     p = tmp_path / "mini.inp"
     lines = [
