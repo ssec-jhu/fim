@@ -1,8 +1,21 @@
-"""Unit tests for ``fim.refactor.deformation_tracking``."""
+"""End-to-end tests for the :mod:`fim.refactor.deformation_tracking` driver.
+
+The reusable helpers live in dedicated modules and are unit-tested there:
+
+- ``fim.refactor.tracking_io``     → :mod:`fim.tests.test_tracking_io`
+- ``fim.refactor.tracking_optim``  → :mod:`fim.tests.test_tracking_optim`
+- ``fim.refactor.tracking_remap``  → :mod:`fim.tests.test_tracking_remap`
+
+This file exercises ``deformation_tracking.main`` itself: argv handling,
+output files written, run-info content, and the various optional code paths
+(remap, smoothing, output downsampling, device selection, etc.). The two TIFF
+loaders and the phase-correlation seed are patched at their source modules
+because ``main`` resolves them as ``tio.load_tiff_zyx_to_xyz`` /
+``topt.estimate_initial_shift`` via attribute lookup.
+"""
 
 from __future__ import annotations
 
-import builtins
 import json
 import runpy
 import sys
@@ -13,9 +26,11 @@ import numpy as np
 import pytest
 
 pytest.importorskip("torch", reason="deformation_tracking requires PyTorch")
-import torch
+import torch  # noqa: E402
 
-from fim.refactor import deformation_tracking as dt
+from fim.refactor import deformation_tracking as dt  # noqa: E402
+from fim.refactor import tracking_io as tio  # noqa: E402
+from fim.refactor import tracking_optim as topt  # noqa: E402
 
 
 @pytest.fixture
@@ -25,12 +40,20 @@ def tiny_stack() -> np.ndarray:
 
 
 def _patch_load_and_shift(vol: np.ndarray) -> tuple[patch, patch]:
+    """Patch the TIFF loader and initial-shift estimator at their source modules.
+
+    ``dt.main`` resolves both as ``tio.load_tiff_zyx_to_xyz`` /
+    ``topt.estimate_initial_shift`` via attribute lookup on the imported module,
+    so patching the helper module attribute is what actually intercepts the
+    call in the pipeline.
+    """
+
     def fake_load(*_a, **_k) -> np.ndarray:
         return vol.copy()
 
     return (
-        patch.object(dt, "load_tiff_zyx_to_xyz", side_effect=fake_load),
-        patch.object(dt, "estimate_initial_shift", return_value=(np.zeros(2, dtype=np.float64), 0.0)),
+        patch.object(tio, "load_tiff_zyx_to_xyz", side_effect=fake_load),
+        patch.object(topt, "estimate_initial_shift", return_value=(np.zeros(2, dtype=np.float64), 0.0)),
     )
 
 
@@ -56,391 +79,6 @@ def _base_argv(out: Path, *, num_iter: str = "2", batch_size: str = "64") -> lis
         "--deform_downsample_factor_z",
         "2",
     ]
-
-
-@pytest.mark.unit
-class TestDisplayInputName:
-    def test_plain_filename_no_underscore(self) -> None:
-        assert dt._display_input_name("plain.tif") == "plain.tif"
-
-    def test_uuid_prefixed_upload_name_is_cleaned(self) -> None:
-        path = "/tmp/fim_uploads/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_def_image.tif"
-        assert dt._display_input_name(path) == "def_image.tif"
-
-    def test_non_uuid_prefix_kept(self) -> None:
-        path = "/tmp/fim_uploads/notauuid_def_image.tif"
-        assert dt._display_input_name(path) == "notauuid_def_image.tif"
-
-
-@pytest.mark.unit
-class TestUnravelFlatIndices:
-    def test_numpy_path_when_torch_api_absent(self, monkeypatch) -> None:
-        pytest.importorskip("torch")
-        import torch
-
-        monkeypatch.setattr(torch, "unravel_index", None, raising=False)
-        idx = torch.tensor([0, 5], dtype=torch.long)
-        x, y, z = dt._unravel_flat_indices(idx, (2, 3, 4))
-        assert x.tolist() == [0, 0]
-        assert y.tolist() == [0, 1]
-        assert z.tolist() == [0, 1]
-
-    def test_torch_callable_branch(self, monkeypatch) -> None:
-        pytest.importorskip("torch")
-        import torch
-
-        used: list[int] = []
-
-        def fake_unravel(idx, shape):
-            used.append(1)
-            exp = np.unravel_index(idx.detach().cpu().numpy().astype(np.int64), shape)
-            return tuple(torch.as_tensor(x, device=idx.device, dtype=torch.long) for x in exp)
-
-        monkeypatch.setattr(torch, "unravel_index", fake_unravel, raising=False)
-        idx = torch.tensor([5], dtype=torch.long)
-        x, y, z = dt._unravel_flat_indices(idx, (2, 3, 4))
-        assert used == [1]
-        assert int(x[0]) == 0 and int(y[0]) == 1 and int(z[0]) == 1
-
-
-@pytest.mark.unit
-class TestAxisAngleRotmat:
-    def test_zero_angle_is_identity(self) -> None:
-        axis = torch.tensor([0.0, 0.0, 1.0], dtype=torch.float32)
-        angle = torch.tensor(0.0, dtype=torch.float32)
-        r = dt.axis_angle_rotmat(axis, angle)
-        assert r.shape == (3, 3)
-        assert torch.allclose(r, torch.eye(3, dtype=r.dtype), atol=1e-6, rtol=1e-5)
-
-    def test_z_axis_small_angle_orthogonal_rows(self) -> None:
-        axis = torch.tensor([0.0, 0.0, 1.0], dtype=torch.float64)
-        angle = torch.tensor(0.3, dtype=torch.float64)
-        r = dt.axis_angle_rotmat(axis, angle)
-        assert torch.allclose(r @ r.T, torch.eye(3, dtype=r.dtype), atol=1e-5, rtol=1e-5)
-
-
-@pytest.mark.unit
-class TestTotalVariationLoss:
-    def test_constant_field_zero(self) -> None:
-        x = torch.ones(5, 5, 5, 3)
-        assert dt.total_variation_loss(x).item() == pytest.approx(0.0, abs=1e-7)
-
-    def test_random_field_positive(self) -> None:
-        rng = torch.Generator().manual_seed(7)
-        x = torch.randn(5, 5, 5, 3, generator=rng)
-        v = dt.total_variation_loss(x).item()
-        assert v > 0.0
-
-
-@pytest.mark.unit
-class TestInterpolatedPrediction:
-    def test_uniform_volume_interior(self) -> None:
-        vol = torch.ones(6, 6, 6, dtype=torch.float32)
-        x = torch.tensor([2.5, 3.0])
-        y = torch.tensor([2.5, 3.0])
-        z = torch.tensor([2.5, 3.0])
-        out = dt.interpolated_prediction(x, y, z, vol, trilinear_interp=True)
-        assert out.shape == (2,)
-        assert torch.allclose(out, torch.ones(2))
-
-    def test_gaussian_weights_normalize(self) -> None:
-        vol = torch.arange(64, dtype=torch.float32).reshape(4, 4, 4)
-        x = torch.tensor([1.25])
-        y = torch.tensor([1.25])
-        z = torch.tensor([1.25])
-        out = dt.interpolated_prediction(x, y, z, vol, trilinear_interp=False, sig_proj=0.5)
-        assert out.shape == (1,)
-        assert torch.isfinite(out).all()
-
-
-@pytest.mark.unit
-class TestSmoothDisplacementField:
-    def test_gaussian_zeros_stays_zero(self) -> None:
-        u = np.zeros((8, 8, 8), dtype=np.float32)
-        got = dt.smooth_displacement_field(u, "gaussian", sigma=1.0)
-        assert got.shape == u.shape
-        assert np.allclose(got, 0.0, atol=1e-6)
-
-    def test_laplacian_runs(self) -> None:
-        u = np.random.default_rng(1).standard_normal((5, 5, 5)).astype(np.float32)
-        got = dt.smooth_displacement_field(u, "laplacian", sigma=2.0)
-        assert got.shape == u.shape
-        assert np.isfinite(got).all()
-
-    def test_unknown_method_raises(self) -> None:
-        u = np.zeros((4, 4, 4), dtype=np.float32)
-        with pytest.raises(ValueError, match="Unknown smoothing method"):
-            dt.smooth_displacement_field(u, "not_a_method", sigma=1.0)
-
-
-@pytest.mark.unit
-class TestRemapDisplacementLagrangian:
-    def test_zero_field_small_grid(self) -> None:
-        nx, ny, nz = 6, 7, 8
-        x = np.linspace(0.0, (nx - 1) * 1e-4, nx)
-        y = np.linspace(0.0, (ny - 1) * 1e-4, ny)
-        z = np.linspace(0.0, (nz - 1) * 1e-4, nz)
-        z0 = np.zeros((nx, ny, nz), dtype=np.float64)
-        rx, ry, rz = dt.remap_displacement_lagrangian_griddata(z0, z0, z0, x, y, z, method="linear")
-        assert np.allclose(rx, 0.0, atol=1e-9)
-        assert np.allclose(ry, 0.0, atol=1e-9)
-        assert np.allclose(rz, 0.0, atol=1e-9)
-
-    def test_uniform_translation_recovered(self) -> None:
-        nx, ny, nz = 10, 10, 10
-        d = 1e-5
-        x = np.arange(nx, dtype=np.float64) * d
-        y = np.arange(ny, dtype=np.float64) * d
-        z = np.arange(nz, dtype=np.float64) * d
-        ux = np.full((nx, ny, nz), 2e-6, dtype=np.float64)
-        uy = np.full((nx, ny, nz), -1.5e-6, dtype=np.float64)
-        uz = np.full((nx, ny, nz), 0.5e-6, dtype=np.float64)
-        rx, ry, rz = dt.remap_displacement_lagrangian_griddata(ux, uy, uz, x, y, z, method="linear")
-        assert np.allclose(rx, 2e-6, rtol=1e-5, atol=1e-8)
-        assert np.allclose(ry, -1.5e-6, rtol=1e-5, atol=1e-8)
-        assert np.allclose(rz, 0.5e-6, rtol=1e-5, atol=1e-8)
-
-    def test_shape_mismatch_raises(self) -> None:
-        u2 = np.zeros((2, 2, 2), dtype=np.float64)
-        ax_ok = np.array([0.0, 1.0])
-        ax_wrong = np.array([0.0, 1.0, 2.0])
-        with pytest.raises(ValueError, match="Axis lengths"):
-            dt.remap_displacement_lagrangian_griddata(u2, u2, u2, ax_wrong, ax_ok, ax_ok, method="nearest")
-
-    def test_u_components_shape_mismatch_raises(self) -> None:
-        u2 = np.zeros((2, 2, 2), dtype=np.float64)
-        u3 = np.zeros((3, 2, 2), dtype=np.float64)
-        ax = np.array([0.0, 1.0])
-        with pytest.raises(ValueError, match="Ux_m, Uy_m, Uz_m"):
-            dt.remap_displacement_lagrangian_griddata(u2, u3, u2, ax, ax, ax, method="nearest")
-
-    def test_remap_nearest_method_runs(self) -> None:
-        nx, ny, nz = 4, 4, 4
-        d = 1e-6
-        x = np.arange(nx, dtype=np.float64) * d
-        y = np.arange(ny, dtype=np.float64) * d
-        z = np.arange(nz, dtype=np.float64) * d
-        u = np.zeros((nx, ny, nz), dtype=np.float64)
-        rx, ry, rz = dt.remap_displacement_lagrangian_griddata(u, u, u, x, y, z, method="nearest")
-        assert rx.shape == (nx, ny, nz)
-        assert np.allclose(rx, 0.0, atol=1e-12)
-
-    def test_remap_warns_when_not_converged(self, capsys: pytest.CaptureFixture[str]) -> None:
-        nx = ny = nz = 3
-        d = 1e-6
-        x = np.arange(nx, dtype=np.float64) * d
-        y = np.arange(ny, dtype=np.float64) * d
-        z = np.arange(nz, dtype=np.float64) * d
-        u = np.zeros((nx, ny, nz), dtype=np.float64)
-        dt.remap_displacement_lagrangian_griddata(u, u, u, x, y, z, method="linear", max_iter=0)
-        err = capsys.readouterr().err
-        assert "Warning: remap_to_reference fixed-point" in err
-
-    def test_coarse_reference_axes_match_full_when_same_resolution(self) -> None:
-        n = 7
-        x = np.arange(n, dtype=np.float64) * 1e-6
-        y = np.arange(n, dtype=np.float64) * 2e-6
-        z = np.arange(n, dtype=np.float64) * 3e-6
-        xc, yc, zc = dt.coarse_reference_axes_m(x, y, z, n, n, n)
-        np.testing.assert_allclose(xc, x)
-        np.testing.assert_allclose(yc, y)
-        np.testing.assert_allclose(zc, z)
-
-    def test_coarse_reference_axes_single_coarse_node(self) -> None:
-        n = 5
-        x = np.arange(n, dtype=np.float64) * 1e-6
-        y = np.arange(n, dtype=np.float64) * 2e-6
-        z = np.arange(n, dtype=np.float64) * 3e-6
-        xc, yc, zc = dt.coarse_reference_axes_m(x, y, z, 1, n, n)
-        assert xc.shape == (1,)
-        assert xc[0] == pytest.approx(x[2])
-        np.testing.assert_allclose(yc, y)
-        np.testing.assert_allclose(zc, z)
-
-    def test_coarse_reference_axes_invalid_n_raises(self) -> None:
-        x = np.array([0.0, 1.0])
-        with pytest.raises(ValueError, match="n_c and n_full must be positive"):
-            dt.coarse_reference_axes_m(x, x, x, 0, 2, 2)
-
-
-@pytest.mark.unit
-class TestUnlinkIfExists:
-    def test_removes_file(self, tmp_path: Path) -> None:
-        p = tmp_path / "old.npy"
-        p.write_bytes(b"x")
-        dt._unlink_if_exists(p)
-        assert not p.exists()
-
-    def test_missing_path_no_op(self, tmp_path: Path) -> None:
-        dt._unlink_if_exists(tmp_path / "nope.npy")
-
-    def test_oserror_swallowed(self, tmp_path: Path) -> None:
-        p = tmp_path / "blocked"
-        p.write_bytes(b"x")
-
-        def boom(*_a, **_k):
-            raise OSError("no")
-
-        with patch.object(Path, "is_file", return_value=True):
-            with patch.object(Path, "unlink", boom):
-                dt._unlink_if_exists(p)
-
-
-@pytest.mark.unit
-class TestWriteGridsAndVolume:
-    def test_write_xyz_grids_m_shape_and_values(self, tmp_path: Path) -> None:
-        nx, ny, nz = 3, 4, 5
-        x_axis = np.arange(nx, dtype=np.float64)
-        y_axis = np.arange(ny, dtype=np.float64)
-        z_axis = np.arange(nz, dtype=np.float64)
-        dt.write_xyz_grids_m(tmp_path, x_axis, y_axis, z_axis, shape=(nx, ny, nz), chunk_z=2)
-
-        x_mm = np.load(tmp_path / "X.npy", mmap_mode="r")
-        y_mm = np.load(tmp_path / "Y.npy", mmap_mode="r")
-        z_mm = np.load(tmp_path / "Z.npy", mmap_mode="r")
-        assert x_mm.shape == (nx, ny, nz)
-        assert int(x_mm[2, 1, 3]) == 2
-        assert int(y_mm[2, 3, 1]) == 3
-        assert int(z_mm[1, 2, 4]) == 4
-
-    def test_write_xyz_grids_m_length_mismatch_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="Axis lengths"):
-            dt.write_xyz_grids_m(
-                tmp_path,
-                np.zeros(2),
-                np.zeros(2),
-                np.zeros(2),
-                shape=(3, 3, 3),
-            )
-
-    def test_write_volume_matrix_constant(self, tmp_path: Path) -> None:
-        shape = (2, 3, 4)
-        vox = 1.25e-12
-        dt.write_volume_matrix_m3(tmp_path, shape=shape, voxel_volume_m3=vox)
-        vm = np.load(tmp_path / "volume_matrix.npy")
-        assert vm.shape == shape
-        assert np.all(vm == vox)
-
-
-@pytest.mark.unit
-class TestLoadTiffZyxToXyz:
-    @patch.object(dt.io, "imread")
-    def test_transpose_and_downsample(self, mock_imread) -> None:
-        z, y, x = 2, 2, 3
-        mock_imread.return_value = np.arange(z * y * x, dtype=np.uint16).reshape(z, y, x)
-        out = dt.load_tiff_zyx_to_xyz("fake.tif", z_start=0, z_end=None, downsamp_xy=1, downsamp_z=1)
-        assert out.shape == (x, y, z)
-        assert out[0, 0, 0] == 0
-        assert out[2, 0, 0] == 2
-
-    @patch.object(dt.io, "imread")
-    def test_z_crop_and_stride(self, mock_imread) -> None:
-        z, y, x = 4, 2, 3
-        mock_imread.return_value = np.ones((z, y, x), dtype=np.float16)
-        out = dt.load_tiff_zyx_to_xyz("fake.tif", z_start=1, z_end=3, downsamp_xy=2, downsamp_z=2)
-        # z slice [1:3:2] -> one plane; y,x [::2] -> sizes 1,2
-        assert out.shape == (2, 1, 1)
-
-
-@pytest.mark.unit
-class TestEstimateInitialShift:
-    @patch.object(dt, "phase_cross_correlation")
-    def test_combines_xy_and_yz(self, mock_pcc) -> None:
-        mock_pcc.side_effect = [
-            (np.array([1.5, -2.0]), None, None),
-            (np.array([9.0, 3.25]), None, None),
-        ]
-        vol = np.ones((4, 4, 4), dtype=np.float32)
-        xy, z_shift = dt.estimate_initial_shift(vol, vol)
-        assert np.allclose(xy, np.array([1.5, -2.0]))
-        assert z_shift == pytest.approx(3.25)
-
-
-@pytest.mark.unit
-class TestComparisonFigureHelpers:
-    def test_corr_rmse_ssim_2d_varying(self) -> None:
-        rng = np.random.default_rng(7)
-        p2d = rng.random((12, 10))
-        d2d = p2d + 0.05 * rng.standard_normal((12, 10))
-        corr, rmse, ssim_val = dt._corr_rmse_ssim_2d(p2d, d2d)
-        assert np.isfinite(corr)
-        assert rmse > 0
-        assert 0.0 <= ssim_val <= 1.0
-
-    def test_corr_rmse_ssim_2d_constant_nan_corr(self) -> None:
-        # SSIM default win_size is 7; need at least 7×7 patches.
-        p2d = np.ones((10, 10), dtype=np.float64)
-        d2d = np.full((10, 10), 2.0, dtype=np.float64)
-        corr, rmse, ssim_val = dt._corr_rmse_ssim_2d(p2d, d2d)
-        assert np.isnan(corr)
-        assert rmse == pytest.approx(1.0)
-        assert np.isfinite(ssim_val)
-
-    def test_save_comparison_figure_writes_png(self, tmp_path: Path) -> None:
-        pytest.importorskip("matplotlib", reason="comparison figure requires matplotlib")
-        rng = np.random.default_rng(0)
-        nx, ny, nz = 14, 12, 10
-        stack_with = (rng.random((nx, ny, nz)) * 200).astype(np.float32)
-        stack_without = (rng.random((nx, ny, nz)) * 200).astype(np.float32)
-        u0 = np.zeros((nx, ny, nz), dtype=np.float64)
-        rot = np.eye(3, dtype=np.float64)
-        shift = np.zeros(3, dtype=np.float64)
-        out = dt._save_comparison_figure(
-            tmp_path,
-            stack_with,
-            stack_without,
-            u0,
-            u0,
-            u0,
-            rot,
-            shift,
-            1.0,
-            1.0,
-        )
-        assert out is not None
-        assert out == tmp_path / "comparison_prediction_vs_data.png"
-        assert out.is_file()
-        assert out.stat().st_size > 1000
-
-    def test_save_comparison_figure_returns_none_without_matplotlib(self, tmp_path: Path) -> None:
-        stack = np.ones((4, 4, 4), dtype=np.float32)
-        u0 = np.zeros((4, 4, 4), dtype=np.float64)
-        rot = np.eye(3, dtype=np.float64)
-        shift = np.zeros(3, dtype=np.float64)
-        real_import = builtins.__import__
-
-        def block_matplotlib(name: str, *args, **kwargs):
-            if name == "matplotlib" or name.startswith("matplotlib."):
-                raise ImportError("matplotlib blocked for test")
-            return real_import(name, *args, **kwargs)
-
-        with patch.object(builtins, "__import__", side_effect=block_matplotlib):
-            out = dt._save_comparison_figure(tmp_path, stack, stack, u0, u0, u0, rot, shift, 1.0, 1.0)
-        assert out is None
-
-
-@pytest.mark.unit
-class TestSaveMseCurvePng:
-    def test_returns_none_without_matplotlib(self, tmp_path: Path) -> None:
-        trace = np.array([1.0, 0.5], dtype=np.float64)
-        real_import = builtins.__import__
-
-        def block_matplotlib(name: str, *args, **kwargs):
-            if name == "matplotlib" or name.startswith("matplotlib."):
-                raise ImportError("matplotlib blocked for test")
-            return real_import(name, *args, **kwargs)
-
-        with patch.object(builtins, "__import__", side_effect=block_matplotlib):
-            out = dt._save_mse_curve_png(tmp_path, trace)
-        assert out is None
-
-    def test_writes_png_when_matplotlib_available(self, tmp_path: Path) -> None:
-        pytest.importorskip("matplotlib", reason="mse curve requires matplotlib")
-        trace = np.linspace(1.0, 0.1, 5, dtype=np.float64)
-        out = dt._save_mse_curve_png(tmp_path, trace)
-        assert out is not None
-        assert out == tmp_path / "mse_curve.png"
-        assert out.is_file()
 
 
 @pytest.mark.unit
@@ -478,7 +116,7 @@ class TestMainPipeline:
     def test_main_save_comparison_figure_flag_calls_helper(self, tiny_stack: np.ndarray, tmp_path: Path) -> None:
         pl, ps = _patch_load_and_shift(tiny_stack)
         with patch.object(
-            dt, "_save_comparison_figure", return_value=tmp_path / "comparison_prediction_vs_data.png"
+            tio, "_save_comparison_figure", return_value=tmp_path / "comparison_prediction_vs_data.png"
         ) as m:
             with patch.object(sys, "argv", _base_argv(tmp_path) + ["--save_comparison_figure"]):
                 with pl, ps:
@@ -539,12 +177,12 @@ class TestMainPipeline:
             return v1.copy() if n[0] == 1 else v2.copy()
 
         with patch.object(sys, "argv", _base_argv(tmp_path)):
-            with patch.object(dt, "load_tiff_zyx_to_xyz", side_effect=fake_load):
+            with patch.object(tio, "load_tiff_zyx_to_xyz", side_effect=fake_load):
                 with pytest.raises(ValueError, match="Shape mismatch"):
                     dt.main()
 
     def test_main_empty_volume_raises(self, tmp_path: Path) -> None:
-        pl = patch.object(dt, "load_tiff_zyx_to_xyz", return_value=np.empty((0, 0, 0), dtype=np.float32))
+        pl = patch.object(tio, "load_tiff_zyx_to_xyz", return_value=np.empty((0, 0, 0), dtype=np.float32))
         with patch.object(sys, "argv", _base_argv(tmp_path)):
             with pl:
                 with pytest.raises(ValueError, match="Empty volume"):
@@ -707,6 +345,95 @@ class TestMainPipeline:
             with pl, ps:
                 dt.main()
         assert "cuda" in (tmp_path / "run_info.txt").read_text(encoding="utf-8").lower()
+
+
+@pytest.mark.unit
+class TestBuildParser:
+    """Smoke tests for the CLI parser surface (defaults, choices, presence).
+
+    Mirrors ``test_main_VFM.test_build_parser_defaults``: catches accidental
+    flag renames or default-value drift without launching the pipeline.
+    """
+
+    def test_defaults_match_documented_values(self) -> None:
+        args = dt.build_parser().parse_args([])
+        # Geometry / preprocessing
+        assert args.dxy_um == pytest.approx(0.492)
+        assert args.dz_um == pytest.approx(3.0)
+        assert args.sphere_diameter_mm == pytest.approx(1.0)
+        assert args.downsamp_xy == 2
+        assert args.downsamp_z == 1
+        assert args.z_start == 0
+        assert args.z_end is None
+        # Optimization
+        assert args.num_iter == 1001
+        assert args.batch_size == 750_000
+        assert args.progress_every == 100
+        assert args.lr_shift == pytest.approx(5e-2)
+        assert args.lr_axis == pytest.approx(1e-3)
+        assert args.lr_angle == pytest.approx(1e-5)
+        assert args.lr_deform == pytest.approx(0.3)
+        assert args.TV2_reg == pytest.approx(30.0)
+        assert args.Uz_penalty_weight == pytest.approx(0.0)
+        assert args.lock_global_shift is False
+        # Coarse grid + output downsample
+        assert args.deform_downsample_factor_xy == 10
+        assert args.deform_downsample_factor_z == 2
+        assert args.output_downsample_xy == 10
+        assert args.output_downsample_z == 3
+        assert args.upsample_order == 3
+        # Switches default off
+        assert args.skip_grids is False
+        assert args.save_comparison_figure is False
+        assert args.remap_to_reference is False
+        assert args.trace_mse is False
+        # Smoothing / remap defaults
+        assert args.smooth_method == "none"
+        assert args.smooth_sigma == pytest.approx(1.0)
+        assert args.remap_interp == "linear"
+        assert args.remap_max_iter == 25
+        # Device default
+        assert args.device == "auto"
+
+    def test_choice_flags_reject_invalid_values(self) -> None:
+        parser = dt.build_parser()
+        for argv in (
+            ["--device", "tpu"],
+            ["--upsample_order", "5"],
+            ["--smooth_method", "bilateral"],
+            ["--remap_interp", "cubic"],
+        ):
+            with pytest.raises(SystemExit):
+                parser.parse_args(argv)
+
+    def test_overrides_propagate(self) -> None:
+        args = dt.build_parser().parse_args(
+            [
+                "--with_sphere",
+                "/tmp/w.tif",
+                "--without_sphere",
+                "/tmp/wo.tif",
+                "--out_dir",
+                "/tmp/out",
+                "--num_iter",
+                "7",
+                "--device",
+                "cpu",
+                "--smooth_method",
+                "gaussian",
+                "--remap_to_reference",
+            ]
+        )
+        assert args.with_sphere == "/tmp/w.tif"
+        assert args.without_sphere == "/tmp/wo.tif"
+        assert args.out_dir == "/tmp/out"
+        assert args.num_iter == 7
+        assert args.device == "cpu"
+        assert args.smooth_method == "gaussian"
+        assert args.remap_to_reference is True
+
+    def test_module_exposes_build_parser_callable(self) -> None:
+        assert callable(dt.build_parser)
 
 
 @pytest.mark.unit
