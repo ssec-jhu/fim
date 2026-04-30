@@ -408,6 +408,48 @@ def test_build_parser_defaults(monkeypatch):
     assert args.model == "linear"
     assert args.data_path is None
     assert args.mesh_file is None
+    # Indentation flags default to the current vws_models state (auto depth).
+    assert args.indent_depth is None
+    assert args.sphere_radius == mvf._DEFAULT_INDENT.sphere_radius
+
+
+def test_apply_indentation_overrides_defaults_preserve_auto_depth(monkeypatch):
+    """Without --indent_depth, the depth already set from max|Uz| is kept."""
+    mvf = import_mvf(monkeypatch)
+    import fim.refactor.vws_models as vm
+
+    original = vm.get_indentation()
+    try:
+        # Simulate what load_common_fields() does when processing a Uz field.
+        vm.set_depth_indentation_from_Uz(np.array([[1e-4, -3e-5]]))
+        prior_depth = vm.get_indentation().depth
+
+        args = mvf.build_parser().parse_args(["--sphere_radius", "2e-3"])
+        params = mvf._apply_indentation_overrides(args)
+
+        assert params.depth == prior_depth  # auto-from-Uz depth survives
+        assert params.sphere_radius == 2e-3
+        assert vm.get_indentation() == params
+    finally:
+        vm.set_indentation(original)
+
+
+def test_apply_indentation_overrides_pin_depth(monkeypatch):
+    """--indent_depth replaces whatever was set from max|Uz|."""
+    mvf = import_mvf(monkeypatch)
+    import fim.refactor.vws_models as vm
+
+    original = vm.get_indentation()
+    try:
+        vm.set_depth_indentation_from_Uz(np.array([[9e-4]]))
+        args = mvf.build_parser().parse_args(["--indent_depth", "5e-5", "--sphere_radius", "1e-3"])
+        params = mvf._apply_indentation_overrides(args)
+        assert params.depth == 5e-5
+        assert params.sphere_radius == 1e-3
+        # contact_radius is derived; it must follow the pinned depth.
+        assert np.isclose(params.contact_radius, np.sqrt(5e-5 * 1e-3))
+    finally:
+        vm.set_indentation(original)
 
 
 def test_resolve_default_data_path_invokes_fim_util(monkeypatch, tmp_path):

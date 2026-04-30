@@ -17,12 +17,20 @@ from scipy.optimize import least_squares
 from fim import util as fim_util
 from fim.refactor.material_model import MaterialModel
 from fim.refactor.vws_models import (
+    IndentationParams,
     central_differentiation,
+    get_indentation,
     increase_matrix_size,
     map_elements_to_centraldiff,
     read_input_file,
     set_depth_indentation_from_Uz,
+    set_indentation,
 )
+
+# Default indentation parameters shown in --help come from whatever the
+# ``vws_models`` module is initialised with, so moving those constants later
+# is still a one-line change.
+_DEFAULT_INDENT = get_indentation()
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +67,29 @@ def build_parser() -> argparse.ArgumentParser:
     # Shared across models
     parser.add_argument("--force_n", type=float, default=4.18e-05, help="Applied indentation force (N)")
 
+    # Indentation geometry (shared across models). These used to be hard-coded
+    # module-level globals in ``vws_models``; exposing them here lets callers
+    # control the virtual-field computations without monkey-patching.
+    parser.add_argument(
+        "--sphere_radius",
+        type=float,
+        default=_DEFAULT_INDENT.sphere_radius,
+        help=(
+            "Indenter sphere radius in meters. Affects the contact radius used by every "
+            f"virtual-field function (default: {_DEFAULT_INDENT.sphere_radius:g})."
+        ),
+    )
+    parser.add_argument(
+        "--indent_depth",
+        type=float,
+        default=None,
+        help=(
+            "Indentation depth in meters. When omitted (default), the depth is "
+            "computed from the loaded Uz field as ``max(|Uz|)``. Set this to pin "
+            "the depth to a specific value (e.g. a calibrated indenter reading)."
+        ),
+    )
+
     # Linear model parameters
     parser.add_argument("--E1_init", type=float, default=15000, help="E1 initial guess (Pa)")
     parser.add_argument("--E2_init", type=float, default=15000, help="E2 initial guess (Pa)")
@@ -85,6 +116,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional .inp mesh file for sample dimensions. If omitted, L/W/H are computed from coordinate grids.",
     )
     return parser
+
+
+def _apply_indentation_overrides(args: argparse.Namespace) -> IndentationParams:
+    """Honor ``--sphere_radius`` / ``--indent_depth`` overrides.
+
+    ``load_common_fields`` already called
+    :func:`fim.refactor.vws_models.set_depth_indentation_from_Uz` so the depth
+    reflects ``max(|Uz|)``. This helper overrides it when the user pinned
+    ``--indent_depth``, and always reapplies the (possibly custom)
+    ``--sphere_radius``. The resulting :class:`IndentationParams` becomes the
+    active one for every subsequent virtual-field evaluation.
+    """
+    current = get_indentation()
+    depth = args.indent_depth if args.indent_depth is not None else current.depth
+    params = IndentationParams(depth=depth, sphere_radius=args.sphere_radius)
+    set_indentation(params)
+    logger.info(
+        "Indentation: depth=%.3e m, sphere_radius=%.3e m, contact_radius=%.3e m (%s)",
+        params.depth,
+        params.sphere_radius,
+        params.contact_radius,
+        "pinned via --indent_depth" if args.indent_depth is not None else "auto from max|Uz|",
+    )
+    return params
 
 
 def run_inverse_model(displacement_field, X, Y, Z, volume_matrix, initial_guess, bounds, material_model):
@@ -360,6 +415,7 @@ def main(argv: list[str] | None = None) -> int:
     if model_name == "linear":
         # === Linear Model ===
         X, Y, Z, disp_tensor, volume_matrix = load_common_fields(data_path)
+        _apply_indentation_overrides(args)
         L, W, H = _get_dimensions(X, Y, Z, args.mesh_file)
 
         linear_params = {
@@ -399,6 +455,7 @@ def main(argv: list[str] | None = None) -> int:
     elif model_name == "hgo":
         # === HGO Model ===
         X, Y, Z, disp_tensor, volume_matrix = load_common_fields(data_path)
+        _apply_indentation_overrides(args)
         L, W, H = _get_dimensions(X, Y, Z, args.mesh_file)
 
         hgo_params = {
@@ -454,6 +511,7 @@ def main(argv: list[str] | None = None) -> int:
     elif model_name == "nh":
         # === NH Model ===
         X, Y, Z, disp_tensor, volume_matrix = load_common_fields(data_path)
+        _apply_indentation_overrides(args)
         L, W, H = _get_dimensions(X, Y, Z, args.mesh_file)
         nh_params = {
             "C10": args.C10_init,
