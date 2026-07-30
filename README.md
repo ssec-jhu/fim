@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/ssec-jhu/fim/actions/workflows/ci.yml/badge.svg)](https://github.com/ssec-jhu/fim/actions/workflows/ci.yml)
 [![Documentation Status](https://readthedocs.org/projects/fim/badge/?version=latest)](https://fim.readthedocs.io/en/latest/?badge=latest)
-[![codecov](https://codecov.io/gh/ssec-jhu/fim/branch/main/graph/badge.svg?token=0KPNKHRC2V)](https://codecov.io/gh/ssec-jhu/fim)
 [![Security](https://github.com/ssec-jhu/fim/actions/workflows/security.yml/badge.svg)](https://github.com/ssec-jhu/fim/actions/workflows/security.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15287306.svg)](https://doi.org/10.5281/zenodo.15287306)
 
